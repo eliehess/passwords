@@ -9,3 +9,4 @@ authors = ["Elie Hess"]
 [dependencies]
 sha2 = "0.9.6"
 rpassword = "5.0.1"
+sqlite = "0.26.0"
