@@ -1,6 +1,6 @@
 pub mod db {
-    use sqlite;
     use std::{path, error::Error};
+    use sqlite;
     use super::encryption;
 
     static DB_LOCATION: &str = "passwords.db";
@@ -65,10 +65,8 @@ pub mod db {
 }
 
 pub mod encryption {
-    use openssl::rsa::{Padding, Rsa};
-    use openssl::symm::Cipher;
-    use std::{fs, path, result, error::Error};
-    use std::io;
+    use openssl::{symm::Cipher, rsa::{Padding, Rsa}};
+    use std::{fs, path, result, io, error::Error};
     use super::utils;
     
     static PUBLIC_KEY: &str = "public.key";
@@ -144,9 +142,8 @@ pub mod encryption {
 }
 
 pub mod utils {
-    use std::{fs, path};
-    use std::io::{self, Read, Write};
-    use std::result;
+    use std::{fs, path, io::{self, Read, Write}};
+    use sha2::{Sha256, Digest};
     use rpassword;
 
     pub fn read_file(filename: &path::PathBuf) -> io::Result<Vec<u8>> {
@@ -161,12 +158,10 @@ pub mod utils {
         io::stdout().flush()
     }
     
-    pub fn read_input() -> result::Result<String, String> {
+    pub fn read_input() -> io::Result<String> {
         let mut input = String::new();
-        match io::stdin().read_line(&mut input) {
-            Ok(_n) => Ok(input.trim().to_string()),
-            Err(e) => Err(format!("Error reading input: {}", e))
-        }
+        io::stdin().read_line(&mut input)?;
+        Ok(input.trim().to_string())
     }
     
     pub fn read_password() -> io::Result<String> {
@@ -174,10 +169,8 @@ pub mod utils {
     }
     
     pub fn hash(input: impl AsRef<[u8]>) -> String {
-        use sha2::{Sha256, Digest};
-    
         let mut hasher = Sha256::new();
         hasher.update(input);
-        return hex::encode(hasher.finalize());
+        hex::encode(hasher.finalize())
     }
 }
