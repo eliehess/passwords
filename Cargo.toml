@@ -10,3 +10,5 @@ authors = ["Elie Hess"]
 sha2 = "0.9.6"
 rpassword = "5.0.1"
 sqlite = "0.26.0"
+openssl = "0.10.36"
+hex = "0.4.3"

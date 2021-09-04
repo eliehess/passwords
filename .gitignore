@@ -1,2 +1,4 @@
 /target
-passwords.db
+*.db
+pubkey.txt
+privkey.txt

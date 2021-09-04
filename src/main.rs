@@ -1,20 +1,18 @@
 use std::io::{self, Write};
 use std::result;
-use passwords::{hash, db};
+use passwords::db;
 use rpassword;
 
-fn main() -> result::Result<(), String> {
+fn main() -> result::Result<(), String> {    
     print_and_flush("Enter password: ")?;
 
     let password = read_password()?;
 
-    let hashed_password = hash::hash(password);
+    let hashed_password = hash(&password);
 
     if hashed_password.as_str() != "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8" {
-        return Err(String::from("Incorrect password"));
-    }
-
-    println!("Correct password");
+        return Err(String::from("Incorrect password"))
+    };
 
     print_and_flush("Enter option: ")?;
 
@@ -25,39 +23,39 @@ fn main() -> result::Result<(), String> {
     match option.as_str() {
         "add" => {
             print_and_flush("Enter name of password to add: ")?;
-            let name = read_input()?;
+            let name_to_add = read_input()?;
 
             print_and_flush("Enter password to add: ")?;
-            let password = read_password()?;
+            let password_to_add = read_password()?;
             
             print_and_flush("Confirm password to add: ")?;
             let password_confirm = read_password()?;
 
-            if password != password_confirm {
-                return Err(String::from("Passwords don't match. Aborting."));
+            if password_to_add != password_confirm {
+                return Err(String::from("Passwords don't match"));
             }
 
-            match db.add_password(&name, &password) {
-                Ok(()) => println!("Added password for {}!", name),
+            match db.add_password(&name_to_add, &password_to_add) {
+                Ok(()) => println!("Added password for {}!", name_to_add),
                 Err(e) => return Err(format!("Error adding database entry: {}", e))
             };
         },
         "get" => {
             print_and_flush("Enter name of password to get: ")?;
 
-            let name = read_input()?;
+            let name_to_get = read_input()?;
 
-            let results = match db.get_password(&name) {
+            let results = match db.get_password(&name_to_get, &password) {
                 Ok(res) => res,
                 Err(e) => return Err(format!("Error getting database entry: {}", e))
             };
 
             if results.len() == 0 {
-                return Err(format!("No results found for name {}", name));
+                return Err(format!("No results found for name {}", name_to_get));
             }
 
             for result in results {
-                println!("password for {}: {}", name, result);
+                println!("password for {}: {}", name_to_get, result);
             }
         },
         "all" => { 
@@ -65,7 +63,7 @@ fn main() -> result::Result<(), String> {
             let confirm = read_input()?;
             match confirm.as_str() {
                 "y" | "Y" => { 
-                    let results = match db.get_all_passwords() {
+                    let results = match db.get_all_passwords(&password) {
                         Ok(res) => res,
                         Err(e) => return Err(format!("Error getting all passwords: {}", e))
                     };
@@ -83,19 +81,19 @@ fn main() -> result::Result<(), String> {
         },
         "remove" => {
             println!("Enter name of password to remove:");
-            let name = read_input()?;
+            let name_to_remove = read_input()?;
 
             println!("Are you sure you want to remove? y/N: ");
             let confirm = read_input()?;
 
             match confirm.as_str() {
-                "y" | "Y" => { 
-                    match db.remove_password(&name) {
-                        Ok(()) => println!("Successfully removed password for {}", name),
+                "y" | "Y" => {
+                    match db.remove_password(&name_to_remove) {
+                        Ok(()) => println!("Successfully removed password for {}", name_to_remove),
                         Err(e) => return Err(format!("Error removing password: {}", e))
                     };
                 },
-                _ => { println!("Cancelling removal"); }
+                _ => println!("Cancelling removal")
             };
         },
         _ => return Err(format!("Invalid option. Supported options: add, get, all, remove"))
@@ -126,4 +124,12 @@ fn read_password() -> result::Result<String, String> {
         Ok(result) => Ok(result),
         Err(e) => Err(format!("Error reading password: {}", e))
     }
+}
+
+pub fn hash(input: impl AsRef<[u8]>) -> String {
+    use sha2::{Sha256, Digest};
+
+    let mut hasher = Sha256::new();
+    hasher.update(input);
+    return hex::encode(hasher.finalize());
 }
