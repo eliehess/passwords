@@ -1,18 +1,18 @@
 pub mod db {
     use sqlite;
-    use std::result;
+    use std::{result, path};
     use super::encryption;
 
     static DB_LOCATION: &str = "passwords.db";
 
-    pub struct Database {
+    pub struct Database<'a> {
         connection: sqlite::Connection,
-        encryption: encryption::Encryption
+        encryption: encryption::Encryption<'a>
     }
 
-    impl Database {
-        pub fn new(encryption: encryption::Encryption) -> result::Result<Database, String> {
-            let connection = match sqlite::open(encryption.path.join(DB_LOCATION)) {
+    impl<'a> Database<'a> {
+        pub fn new(path: &path::PathBuf, encryption: encryption::Encryption<'a>) -> result::Result<Database<'a>, String> {
+            let connection = match sqlite::open(path.join(DB_LOCATION)) {
                 Ok(c) => c,
                 Err(e) => return Err(format!("Unable to connect to database: {}", e))
             };
@@ -74,34 +74,34 @@ pub mod encryption {
     static PRIVATE_KEY: &str = "private.key";
     static PASSWORD_HASH: &str = "password.hash";
 
-    pub struct Encryption {
-        pub path: path::PathBuf
+    pub struct Encryption<'a> {
+        path: &'a path::PathBuf
     }
 
-    impl Encryption {
-        pub fn new(path: path::PathBuf) -> Encryption {
-            Encryption { path }
+    impl<'a> Encryption<'a> {
+        pub fn use_existing(path: &'a path::PathBuf) -> Result<Encryption<'a>, String> {
+            if do_keys_exist(&path) {
+                Ok(Encryption { path })
+            } else {
+                Err(String::from("Keys don't exist"))
+            }
         }
 
-        pub fn do_keys_exist(&self) -> bool {
-            self.path.join(PUBLIC_KEY).exists() && 
-            self.path.join(PRIVATE_KEY).exists() && 
-            self.path.join(PASSWORD_HASH).exists()
-        }
-
-        pub fn init_keys(&self, password: &str) {
+        pub fn make_new(path: &'a path::PathBuf, password: &str) -> Encryption<'a> {
+            let fin = Encryption { path };
             let keypair = Rsa::generate(2048).unwrap();
             let cipher = Cipher::aes_256_cbc();
             let pubkey = keypair.public_key_to_pem_pkcs1().unwrap();
             let privkey = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes()).unwrap();
             
-            if !self.path.is_dir() {
-                fs::create_dir_all(&self.path).unwrap();
+            if !fin.path.is_dir() {
+                fs::create_dir_all(&fin.path).unwrap();
             }
     
-            fs::write(self.path.join(PUBLIC_KEY), &pubkey).unwrap();
-            fs::write(self.path.join(PRIVATE_KEY), &privkey).unwrap();
-            fs::write(self.path.join(PASSWORD_HASH), utils::hash(&password)).unwrap();
+            fs::write(fin.path.join(PUBLIC_KEY), &pubkey).unwrap();
+            fs::write(fin.path.join(PRIVATE_KEY), &privkey).unwrap();
+            fs::write(fin.path.join(PASSWORD_HASH), utils::hash(&password)).unwrap();
+            fin
         }
 
         pub fn is_correct_password(&self, password: &str) -> bool {
@@ -122,6 +122,12 @@ pub mod encryption {
             let len = privkey.private_decrypt(&text, &mut decrypted, Padding::PKCS1).unwrap();
             return String::from_utf8(decrypted[..len].to_vec()).unwrap();
         }
+    }
+
+    fn do_keys_exist(path: &path::PathBuf) -> bool {
+        path.join(PUBLIC_KEY).exists() && 
+        path.join(PRIVATE_KEY).exists() && 
+        path.join(PASSWORD_HASH).exists()
     }
 }
 

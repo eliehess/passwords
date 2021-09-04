@@ -4,24 +4,25 @@ use passwords::{db, encryption, utils::*};
 fn main() -> result::Result<(), String> {
     let data_dir = env::current_exe().unwrap().parent().unwrap().join(".data");
 
-    let encryption = encryption::Encryption::new(data_dir);
+    let encryption = match encryption::Encryption::use_existing(&data_dir) {
+        Ok(x) => x,
+        Err(_e) => {
+            println!("Welcome! It looks like you haven't set up this application yet.");
 
-    if !encryption.do_keys_exist() {
-        println!("Welcome! It looks like you haven't set up this application yet.");
+            print_and_flush("Before continuing, please choose a password: ");
+            let init_password = read_password()?;
 
-        print_and_flush("Before continuing, please choose a password: ");
-        let init_password = read_password()?;
+            print_and_flush("Please confirm your password: ");
+            let confirm_init_password = read_password()?;
 
-        print_and_flush("Please confirm your password: ");
-        let confirm_init_password = read_password()?;
-
-        if init_password == confirm_init_password {
-            encryption.init_keys(&init_password);
-            println!("Awesome! You're ready to go.");
-        } else {
-            return Err(String::from("Whoops! Your passwords don't match"));
+            if init_password == confirm_init_password {
+                println!("Awesome! You're ready to go.");
+                encryption::Encryption::make_new(&data_dir, &init_password)
+            } else {
+                return Err(String::from("Whoops! Your passwords don't match"));
+            }
         }
-    }
+    };
 
     print_and_flush("Enter password: ");
 
@@ -35,7 +36,7 @@ fn main() -> result::Result<(), String> {
 
     let option = read_input()?;
 
-    let db = db::Database::new(encryption)?;
+    let db = db::Database::new(&data_dir, encryption)?;
 
     match option.as_str() {
         "add" => {
