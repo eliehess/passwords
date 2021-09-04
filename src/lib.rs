@@ -96,9 +96,8 @@ pub mod encryption {
 
         pub fn make_new(path: &path::PathBuf, password: &str) -> Result<Encryption, Box<dyn Error>> {
             let keypair = Rsa::generate(2048)?;
-            let cipher = Cipher::aes_256_cbc();
             let public_key = keypair.public_key_to_pem_pkcs1()?;
-            let private_key = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes())?;
+            let private_key = keypair.private_key_to_pem_passphrase(Cipher::aes_256_cbc(), password.as_bytes())?;
             let password_hash = utils::hash(&password);
             
             if !path.is_dir() {
@@ -157,9 +156,9 @@ pub mod utils {
         Ok(data)
     }
 
-    pub fn print_and_flush(output: impl AsRef<str>) {
+    pub fn print_and_flush(output: impl AsRef<str>) -> io::Result<()> {
         print!("{}", output.as_ref());
-        io::stdout().flush().expect("Unable to flush stdout");
+        io::stdout().flush()
     }
     
     pub fn read_input() -> result::Result<String, String> {
