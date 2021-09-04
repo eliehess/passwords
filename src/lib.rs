@@ -3,30 +3,30 @@ pub mod db {
     use std::result;
     use super::encryption;
 
+    static DB_LOCATION: &str = "passwords.db";
+
     pub struct Database {
-        connection: sqlite::Connection
+        connection: sqlite::Connection,
+        encryption: encryption::Encryption
     }
 
     impl Database {
-        pub fn new() -> result::Result<Database, String> {
-            let connection = match sqlite::open("passwords.db") {
+        pub fn new(encryption: encryption::Encryption) -> result::Result<Database, String> {
+            let connection = match sqlite::open(encryption.path.join(DB_LOCATION)) {
                 Ok(c) => c,
-                Err(e) => return Err(format!("Unable to create database connection: {}", e))
+                Err(e) => return Err(format!("Unable to connect to database: {}", e))
             };
-            let db = Database { connection };
-            match db.init() {
-                Ok(()) => (),
-                Err(e) => return Err(format!("Unable to initialize database connection: {}", e))
-            };
-            Ok(db)
-        }
 
-        fn init(&self) -> sqlite::Result<()> {
-            self.connection.execute("CREATE TABLE IF NOT EXISTS passwords (name TEXT, password TEXT, PRIMARY KEY (name))")
+            let db = Database { connection, encryption };
+
+            match db.connection.execute("CREATE TABLE IF NOT EXISTS passwords (name TEXT, password TEXT, PRIMARY KEY (name))") {
+                Ok(()) => Ok(db),
+                Err(e) => Err(format!("Unable to initialize database: {}", e))
+            }
         }
 
         pub fn add_password(&self, name: &str, password: &str) -> sqlite::Result<()> {
-            let enc_password = hex::encode(encryption::encrypt(password));
+            let enc_password = hex::encode(self.encryption.encrypt(password));
             self.connection.execute(format!("INSERT INTO passwords VALUES ('{}', '{}')", name, enc_password))
         }
         
@@ -38,7 +38,7 @@ pub mod db {
             let mut fin: Vec<String> = Vec::new();
         
             while let sqlite::State::Row = statement.next()? {
-                fin.push(encryption::decrypt(&hex::decode(statement.read::<String>(0)?).unwrap(), &password));
+                fin.push(self.encryption.decrypt(&hex::decode(statement.read::<String>(0)?).unwrap(), &password));
             }
         
             Ok(fin)
@@ -55,7 +55,7 @@ pub mod db {
         
             while let sqlite::State::Row = statement.next()? {
                 let name = statement.read::<String>(0)?;
-                let password = encryption::decrypt(&hex::decode(statement.read::<String>(1)?).unwrap(), &password);
+                let password = self.encryption.decrypt(&hex::decode(statement.read::<String>(1)?).unwrap(), &password);
                 fin.push(format!("{}: {}", name, password));
             }
         
@@ -64,29 +64,105 @@ pub mod db {
     }
 }
 
-mod encryption {
+pub mod encryption {
     use openssl::rsa::{Padding, Rsa};
-    use std::fs;
-    use std::io::Read;
+    use openssl::symm::Cipher;
+    use std::{fs, path};
+    use super::utils;
+    
+    static PUBLIC_KEY: &str = "public.key";
+    static PRIVATE_KEY: &str = "private.key";
+    static PASSWORD_HASH: &str = "password.hash";
 
-    pub fn encrypt(text: &str) -> Vec<u8> {
-        let pubkey = Rsa::public_key_from_pem_pkcs1(&read_file("pubkey.txt").unwrap()).unwrap();
-        let mut encrypted = vec![0; pubkey.size() as usize];
-        pubkey.public_encrypt(text.as_bytes(), &mut encrypted, Padding::PKCS1).unwrap();
-        encrypted
+    pub struct Encryption {
+        pub path: path::PathBuf
     }
 
-    pub fn decrypt(text: &Vec<u8>, password: &str) -> String {
-        let privkey = Rsa::private_key_from_pem_passphrase(&read_file("privkey.txt").unwrap(), password.as_bytes()).unwrap(); 
-        let mut decrypted = vec![0; privkey.size() as usize];
-        let len = privkey.private_decrypt(&text, &mut decrypted, Padding::PKCS1).unwrap();
-        return String::from_utf8(decrypted[..len].to_vec()).unwrap();
-    }
+    impl Encryption {
+        pub fn new(path: path::PathBuf) -> Encryption {
+            Encryption { path }
+        }
 
-    fn read_file(filename: &str) -> std::io::Result<Vec<u8>> {
+        pub fn do_keys_exist(&self) -> bool {
+            self.path.join(PUBLIC_KEY).exists() && 
+            self.path.join(PRIVATE_KEY).exists() && 
+            self.path.join(PASSWORD_HASH).exists()
+        }
+
+        pub fn init_keys(&self, password: &str) {
+            let keypair = Rsa::generate(2048).unwrap();
+            let cipher = Cipher::aes_256_cbc();
+            let pubkey = keypair.public_key_to_pem_pkcs1().unwrap();
+            let privkey = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes()).unwrap();
+            
+            if !self.path.is_dir() {
+                fs::create_dir_all(&self.path).unwrap();
+            }
+    
+            fs::write(self.path.join(PUBLIC_KEY), &pubkey).unwrap();
+            fs::write(self.path.join(PRIVATE_KEY), &privkey).unwrap();
+            fs::write(self.path.join(PASSWORD_HASH), utils::hash(&password)).unwrap();
+        }
+
+        pub fn is_correct_password(&self, password: &str) -> bool {
+            let target_hash = String::from_utf8(utils::read_file(&self.path.join(PASSWORD_HASH)).unwrap()).unwrap();
+            utils::hash(password) == target_hash
+        }
+
+        pub fn encrypt(&self, text: &str) -> Vec<u8> {
+            let pubkey = Rsa::public_key_from_pem_pkcs1(&utils::read_file(&self.path.join(PUBLIC_KEY)).unwrap()).unwrap();
+            let mut encrypted = vec![0; pubkey.size() as usize];
+            pubkey.public_encrypt(text.as_bytes(), &mut encrypted, Padding::PKCS1).unwrap();
+            encrypted
+        }
+    
+        pub fn decrypt(&self, text: &Vec<u8>, password: &str) -> String {
+            let privkey = Rsa::private_key_from_pem_passphrase(&utils::read_file(&self.path.join(PRIVATE_KEY)).unwrap(), password.as_bytes()).unwrap(); 
+            let mut decrypted = vec![0; privkey.size() as usize];
+            let len = privkey.private_decrypt(&text, &mut decrypted, Padding::PKCS1).unwrap();
+            return String::from_utf8(decrypted[..len].to_vec()).unwrap();
+        }
+    }
+}
+
+pub mod utils {
+    use std::{fs, path};
+    use std::io::{self, Read, Write};
+    use std::result;
+    use rpassword;
+
+    pub fn read_file(filename: &path::PathBuf) -> io::Result<Vec<u8>> {
         let mut file = fs::File::open(filename)?;
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
         Ok(data)
+    }
+
+    pub fn print_and_flush(output: &str) {
+        print!("{}", output);
+        io::stdout().flush().expect("Unable to flush stdout");
+    }
+    
+    pub fn read_input() -> result::Result<String, String> {
+        let mut input = String::new();
+        match io::stdin().read_line(&mut input) {
+            Ok(_n) => Ok(input.trim().to_string()),
+            Err(e) => Err(format!("Error reading input: {}", e))
+        }
+    }
+    
+    pub fn read_password() -> result::Result<String, String> {
+        match rpassword::read_password() {
+            Ok(result) => Ok(result),
+            Err(e) => Err(format!("Error reading password: {}", e))
+        }
+    }
+    
+    pub fn hash(input: impl AsRef<[u8]>) -> String {
+        use sha2::{Sha256, Digest};
+    
+        let mut hasher = Sha256::new();
+        hasher.update(input);
+        return hex::encode(hasher.finalize());
     }
 }

@@ -1,34 +1,51 @@
-use std::io::{self, Write};
-use std::result;
-use passwords::db;
-use rpassword;
+use std::{result, env};
+use passwords::{db, encryption, utils::*};
 
-fn main() -> result::Result<(), String> {    
-    print_and_flush("Enter password: ")?;
+fn main() -> result::Result<(), String> {
+    let data_dir = env::current_exe().unwrap().parent().unwrap().join(".data");
+
+    let encryption = encryption::Encryption::new(data_dir);
+
+    if !encryption.do_keys_exist() {
+        println!("Welcome! It looks like you haven't set up this application yet.");
+
+        print_and_flush("Before continuing, please choose a password: ");
+        let init_password = read_password()?;
+
+        print_and_flush("Please confirm your password: ");
+        let confirm_init_password = read_password()?;
+
+        if init_password == confirm_init_password {
+            encryption.init_keys(&init_password);
+            println!("Awesome! You're ready to go.");
+        } else {
+            return Err(String::from("Whoops! Your passwords don't match"));
+        }
+    }
+
+    print_and_flush("Enter password: ");
 
     let password = read_password()?;
 
-    let hashed_password = hash(&password);
+    if !encryption.is_correct_password(&password) {
+        return Err(String::from("Incorrect password"));
+    }
 
-    if hashed_password.as_str() != "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8" {
-        return Err(String::from("Incorrect password"))
-    };
-
-    print_and_flush("Enter option: ")?;
+    print_and_flush("Enter option (add, get, all, remove): ");
 
     let option = read_input()?;
 
-    let db = db::Database::new()?;
+    let db = db::Database::new(encryption)?;
 
     match option.as_str() {
         "add" => {
-            print_and_flush("Enter name of password to add: ")?;
+            print_and_flush("Enter name of password to add: ");
             let name_to_add = read_input()?;
 
-            print_and_flush("Enter password to add: ")?;
+            print_and_flush("Enter password to add: ");
             let password_to_add = read_password()?;
             
-            print_and_flush("Confirm password to add: ")?;
+            print_and_flush("Confirm password to add: ");
             let password_confirm = read_password()?;
 
             if password_to_add != password_confirm {
@@ -41,7 +58,7 @@ fn main() -> result::Result<(), String> {
             };
         },
         "get" => {
-            print_and_flush("Enter name of password to get: ")?;
+            print_and_flush("Enter name of password to get: ");
 
             let name_to_get = read_input()?;
 
@@ -59,7 +76,7 @@ fn main() -> result::Result<(), String> {
             }
         },
         "all" => { 
-            print_and_flush("Are you sure you want to get all passwords? They will be printed to the console. y/N: ")?;
+            print_and_flush("Are you sure you want to get all passwords? They will be printed to the console. y/N: ");
             let confirm = read_input()?;
             match confirm.as_str() {
                 "y" | "Y" => { 
@@ -100,36 +117,4 @@ fn main() -> result::Result<(), String> {
     };
 
     Ok(())
-}
-
-fn print_and_flush(output: &str) -> result::Result<(), String> {
-    print!("{}", output);
-
-    match io::stdout().flush() {
-        Ok(()) => Ok(()),
-        Err(e) => Err(format!("Error flushing stdout: {}", e))
-    }
-}
-
-fn read_input() -> result::Result<String, String> {
-    let mut input = String::new();
-    match io::stdin().read_line(&mut input) {
-        Ok(_n) => Ok(input.trim().to_string()),
-        Err(e) => Err(format!("Error reading input: {}", e))
-    }
-}
-
-fn read_password() -> result::Result<String, String> {
-    match rpassword::read_password() {
-        Ok(result) => Ok(result),
-        Err(e) => Err(format!("Error reading password: {}", e))
-    }
-}
-
-pub fn hash(input: impl AsRef<[u8]>) -> String {
-    use sha2::{Sha256, Digest};
-
-    let mut hasher = Sha256::new();
-    hasher.update(input);
-    return hex::encode(hasher.finalize());
 }
