@@ -5,13 +5,13 @@ pub mod db {
 
     static DB_LOCATION: &str = "passwords.db";
 
-    pub struct Database<'a> {
+    pub struct Database {
         connection: sqlite::Connection,
-        encryption: encryption::Encryption<'a>
+        encryption: encryption::Encryption
     }
 
-    impl<'a> Database<'a> {
-        pub fn new(path: &path::PathBuf, encryption: encryption::Encryption<'a>) -> result::Result<Database<'a>, String> {
+    impl Database {
+        pub fn new(path: &path::PathBuf, encryption: encryption::Encryption) -> result::Result<Database, String> {
             let connection = match sqlite::open(path.join(DB_LOCATION)) {
                 Ok(c) => c,
                 Err(e) => return Err(format!("Unable to connect to database: {}", e))
@@ -74,50 +74,54 @@ pub mod encryption {
     static PRIVATE_KEY: &str = "private.key";
     static PASSWORD_HASH: &str = "password.hash";
 
-    pub struct Encryption<'a> {
-        path: &'a path::PathBuf
+    pub struct Encryption {
+        public_key: Vec<u8>,
+        enc_private_key: Vec<u8>,
+        password_hash: String
     }
 
-    impl<'a> Encryption<'a> {
-        pub fn use_existing(path: &'a path::PathBuf) -> Result<Encryption<'a>, String> {
+    impl Encryption {
+        pub fn use_existing(path: &path::PathBuf) -> Result<Encryption, String> {
             if do_keys_exist(&path) {
-                Ok(Encryption { path })
+                let public_key = utils::read_file(&path.join(PUBLIC_KEY)).unwrap();
+                let enc_private_key = utils::read_file(&path.join(PRIVATE_KEY)).unwrap();
+                let password_hash = String::from_utf8(utils::read_file(&path.join(PASSWORD_HASH)).unwrap()).unwrap();
+                Ok(Encryption { public_key, enc_private_key, password_hash })
             } else {
                 Err(String::from("Keys don't exist"))
             }
         }
 
-        pub fn make_new(path: &'a path::PathBuf, password: &str) -> Encryption<'a> {
-            let fin = Encryption { path };
+        pub fn make_new(path: &path::PathBuf, password: &str) -> Encryption {
             let keypair = Rsa::generate(2048).unwrap();
             let cipher = Cipher::aes_256_cbc();
-            let pubkey = keypair.public_key_to_pem_pkcs1().unwrap();
-            let privkey = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes()).unwrap();
+            let public_key = keypair.public_key_to_pem_pkcs1().unwrap();
+            let enc_private_key = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes()).unwrap();
+            let password_hash = utils::hash(&password);
             
-            if !fin.path.is_dir() {
-                fs::create_dir_all(&fin.path).unwrap();
+            if !path.is_dir() {
+                fs::create_dir_all(&path).unwrap();
             }
     
-            fs::write(fin.path.join(PUBLIC_KEY), &pubkey).unwrap();
-            fs::write(fin.path.join(PRIVATE_KEY), &privkey).unwrap();
-            fs::write(fin.path.join(PASSWORD_HASH), utils::hash(&password)).unwrap();
-            fin
+            fs::write(path.join(PUBLIC_KEY), &public_key).unwrap();
+            fs::write(path.join(PRIVATE_KEY), &enc_private_key).unwrap();
+            fs::write(path.join(PASSWORD_HASH), &password_hash).unwrap();
+            Encryption { public_key, enc_private_key, password_hash }
         }
 
         pub fn is_correct_password(&self, password: &str) -> bool {
-            let target_hash = String::from_utf8(utils::read_file(&self.path.join(PASSWORD_HASH)).unwrap()).unwrap();
-            utils::hash(password) == target_hash
+            utils::hash(password) == self.password_hash
         }
 
         pub fn encrypt(&self, text: &str) -> Vec<u8> {
-            let pubkey = Rsa::public_key_from_pem_pkcs1(&utils::read_file(&self.path.join(PUBLIC_KEY)).unwrap()).unwrap();
+            let pubkey = Rsa::public_key_from_pem_pkcs1(&self.public_key).unwrap();
             let mut encrypted = vec![0; pubkey.size() as usize];
             pubkey.public_encrypt(text.as_bytes(), &mut encrypted, Padding::PKCS1).unwrap();
             encrypted
         }
     
         pub fn decrypt(&self, text: &Vec<u8>, password: &str) -> String {
-            let privkey = Rsa::private_key_from_pem_passphrase(&utils::read_file(&self.path.join(PRIVATE_KEY)).unwrap(), password.as_bytes()).unwrap(); 
+            let privkey = Rsa::private_key_from_pem_passphrase(&self.enc_private_key, password.as_bytes()).unwrap(); 
             let mut decrypted = vec![0; privkey.size() as usize];
             let len = privkey.private_decrypt(&text, &mut decrypted, Padding::PKCS1).unwrap();
             return String::from_utf8(decrypted[..len].to_vec()).unwrap();
