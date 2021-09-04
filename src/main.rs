@@ -9,10 +9,10 @@ fn main() -> result::Result<(), String> {
         Err(_e) => {
             println!("Welcome! It looks like you haven't set up this application yet.");
 
-            print_and_flush("Before continuing, please choose a password: ");
+            print_and_flush("Before continuing, please choose a master password: ");
             let init_password = read_password()?;
 
-            print_and_flush("Please confirm your password: ");
+            print_and_flush("Please confirm your master password: ");
             let confirm_init_password = read_password()?;
 
             if init_password == confirm_init_password {
@@ -24,16 +24,12 @@ fn main() -> result::Result<(), String> {
         }
     };
 
-    print_and_flush("Enter password: ");
-
+    print_and_flush("Enter master password: ");
     let password = read_password()?;
 
-    if !encryption.is_correct_password(&password) {
-        return Err(String::from("Incorrect password"));
-    }
+    encryption.check_password(&password)?;
 
     print_and_flush("Enter option (add, get, all, remove): ");
-
     let option = read_input()?;
 
     let db = db::Database::new(&data_dir, encryption)?;
@@ -101,7 +97,7 @@ fn main() -> result::Result<(), String> {
             println!("Enter name of password to remove:");
             let name_to_remove = read_input()?;
 
-            println!("Are you sure you want to remove? y/N: ");
+            println!("Are you sure you want to remove password for {}? y/N: ", name_to_remove);
             let confirm = read_input()?;
 
             match confirm.as_str() {

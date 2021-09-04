@@ -67,7 +67,7 @@ pub mod db {
 pub mod encryption {
     use openssl::rsa::{Padding, Rsa};
     use openssl::symm::Cipher;
-    use std::{fs, path};
+    use std::{fs, path, result};
     use super::utils;
     
     static PUBLIC_KEY: &str = "public.key";
@@ -76,7 +76,7 @@ pub mod encryption {
 
     pub struct Encryption {
         public_key: Vec<u8>,
-        enc_private_key: Vec<u8>,
+        private_key: Vec<u8>,
         password_hash: String
     }
 
@@ -84,9 +84,10 @@ pub mod encryption {
         pub fn use_existing(path: &path::PathBuf) -> Result<Encryption, String> {
             if do_keys_exist(&path) {
                 let public_key = utils::read_file(&path.join(PUBLIC_KEY)).unwrap();
-                let enc_private_key = utils::read_file(&path.join(PRIVATE_KEY)).unwrap();
+                let private_key = utils::read_file(&path.join(PRIVATE_KEY)).unwrap();
                 let password_hash = String::from_utf8(utils::read_file(&path.join(PASSWORD_HASH)).unwrap()).unwrap();
-                Ok(Encryption { public_key, enc_private_key, password_hash })
+
+                Ok(Encryption { public_key, private_key, password_hash })
             } else {
                 Err(String::from("Keys don't exist"))
             }
@@ -96,7 +97,7 @@ pub mod encryption {
             let keypair = Rsa::generate(2048).unwrap();
             let cipher = Cipher::aes_256_cbc();
             let public_key = keypair.public_key_to_pem_pkcs1().unwrap();
-            let enc_private_key = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes()).unwrap();
+            let private_key = keypair.private_key_to_pem_passphrase(cipher, password.as_bytes()).unwrap();
             let password_hash = utils::hash(&password);
             
             if !path.is_dir() {
@@ -104,13 +105,20 @@ pub mod encryption {
             }
     
             fs::write(path.join(PUBLIC_KEY), &public_key).unwrap();
-            fs::write(path.join(PRIVATE_KEY), &enc_private_key).unwrap();
+            fs::write(path.join(PRIVATE_KEY), &private_key).unwrap();
             fs::write(path.join(PASSWORD_HASH), &password_hash).unwrap();
-            Encryption { public_key, enc_private_key, password_hash }
+            Encryption { public_key, private_key, password_hash }
         }
 
-        pub fn is_correct_password(&self, password: &str) -> bool {
-            utils::hash(password) == self.password_hash
+        pub fn check_password(&self, password: &str) -> result::Result<(), String> {
+            if utils::hash(password) == self.password_hash {
+                match Rsa::private_key_from_pem_passphrase(&self.private_key, password.as_bytes()) {
+                    Ok(_) => Ok(()),
+                    Err(_) => Err(String::from("Password hash corrupted"))
+                }
+            } else {
+                Err(String::from("Passwords don't match"))
+            }
         }
 
         pub fn encrypt(&self, text: &str) -> Vec<u8> {
@@ -121,7 +129,7 @@ pub mod encryption {
         }
     
         pub fn decrypt(&self, text: &Vec<u8>, password: &str) -> String {
-            let privkey = Rsa::private_key_from_pem_passphrase(&self.enc_private_key, password.as_bytes()).unwrap(); 
+            let privkey = Rsa::private_key_from_pem_passphrase(&self.private_key, password.as_bytes()).unwrap(); 
             let mut decrypted = vec![0; privkey.size() as usize];
             let len = privkey.private_decrypt(&text, &mut decrypted, Padding::PKCS1).unwrap();
             return String::from_utf8(decrypted[..len].to_vec()).unwrap();
