@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 pub mod db {
     use std::{path, error::Error};
     use sqlite;
@@ -115,7 +117,7 @@ pub mod encryption {
                     Err(_) => Err(String::from("Password hash corrupted"))
                 }
             } else {
-                Err(String::from("Passwords don't match"))
+                Err(String::from("Incorrect password"))
             }
         }
 
@@ -145,6 +147,7 @@ pub mod utils {
     use std::{fs, path, io::{self, Read, Write}};
     use sha2::{Sha256, Digest};
     use rpassword;
+    use clipboard_win::Clipboard;
 
     pub fn read_file(filename: &path::PathBuf) -> io::Result<Vec<u8>> {
         let mut file = fs::File::open(filename)?;
@@ -167,10 +170,14 @@ pub mod utils {
     pub fn read_password() -> io::Result<String> {
         rpassword::read_password()
     }
-    
+
     pub fn hash(input: impl AsRef<[u8]>) -> String {
         let mut hasher = Sha256::new();
         hasher.update(input);
         hex::encode(hasher.finalize())
+    }
+
+    pub fn set_clipboard(text: &str) -> io::Result<()> {
+        Clipboard::new()?.set_string(text)
     }
 }
