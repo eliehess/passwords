@@ -1,12 +1,72 @@
 use std::{env, path, result::Result, error::Error};
 use passwords::{db, encryption, utils::{print_and_flush, read_password, read_input, set_clipboard}};
 
+enum Opt {
+    Add,
+    Get,
+    All,
+    Remove
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<String> = env::args().collect();
+
     let data_dir = env::current_exe()?.parent().unwrap().join(".data");
+
+    if args.len() < 2 {
+        print_usage();
+        return Ok(());
+    }
+
+    let option = match args[1].as_str() {
+        "add" => {
+            if args.len() != 3 {
+                print_usage();
+                return Ok(());
+            }
+            Opt::Add
+        },
+        "get" => {
+            if args.len() != 3 {
+                print_usage();
+                return Ok(());
+            }
+            Opt::Get
+        },
+        "all" => {
+            if args.len() != 2 {
+                print_usage();
+                return Ok(());
+            }
+            Opt::All
+        },
+        "remove" => {
+            if args.len() != 3 {
+                print_usage();
+                return Ok(());
+            }
+            Opt::Remove
+        },
+        "setup" => {
+            if args.len() != 2 {
+                print_usage();
+                return Ok(());
+            }
+            handle_encryption_setup(&data_dir)?;
+            return Ok(());
+        },
+        _ => {
+            print_usage();
+            return Ok(())
+        }
+    };
 
     let encryption = match encryption::Encryption::use_existing(&data_dir) {
         Ok(enc) => enc,
-        Err(_e) => handle_encryption_setup(&data_dir)?
+        Err(_e) => {
+            println!("It looks like you haven't set up this application yet. Please run passwords setup to get started");
+            return Ok(());
+        }
     };
 
     print_and_flush("Enter master password: ")?;
@@ -16,11 +76,37 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let database = db::Database::new(&data_dir, encryption)?;
 
-    handle_options(&database, &password)
+    match option {
+        Opt::Add => handle_add(&args, &database, &password)?,
+        Opt::Get => handle_get(&args, &database, &password)?,
+        Opt::All => handle_all(&database, &password)?,
+        Opt::Remove => handle_remove(&args, &database, &password)?
+    };
+
+    Ok(())
+}
+
+fn print_usage() {
+    println!("Usage: passwords [add, get, all, remove] <name>");
 }
 
 fn handle_encryption_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn Error>> {
-    println!("Welcome! It looks like you haven't set up this application yet.");
+    print_and_flush("Welcome! ")?;
+
+    match encryption::Encryption::use_existing(&path) {
+        Ok(_) => {
+            print_and_flush("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ")?;
+            let confirm = read_input()?;
+            match confirm.as_str() {
+                "y" | "Y" => (),
+                _ => {
+                    println!("Aborting setup");
+                    std::process::exit(0);
+                }
+            };
+        },
+        Err(_) => ()
+    };
 
     let password = loop {
         print_and_flush("Please choose a master password: ")?;
@@ -42,25 +128,8 @@ fn handle_encryption_setup(path: &path::PathBuf) -> Result<encryption::Encryptio
     Ok(enc)
 }
 
-fn handle_options(database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
-    print_and_flush("Enter option (add, get, all, remove): ")?;
-    let option = read_input()?;
-
-    match option.as_str() {
-        "add" => handle_add(&database, &password),
-        "get" => handle_get(&database, &password),
-        "all" => handle_all(&database, &password),
-        "remove" => handle_remove(&database, &password),
-        _ => {
-            println!("Invalid option");
-            handle_options(database, password)
-        }
-    }
-}
-
-fn handle_add(database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
-    print_and_flush("Enter name of password to add: ")?;
-    let name_to_add = read_input()?;
+fn handle_add(args: &Vec<String>, database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
+    let name_to_add = &args[2];
 
     let results = database.get_password(&name_to_add, &password)?;
 
@@ -90,10 +159,8 @@ fn handle_add(database: &db::Database, password: &str) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn handle_get(database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
-    print_and_flush("Enter name of password to get: ")?;
-
-    let name_to_get = read_input()?;
+fn handle_get(args: &Vec<String>, database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
+    let name_to_get = &args[2];
 
     let results = database.get_password(&name_to_get, &password)?;
 
@@ -130,9 +197,9 @@ fn handle_all(database: &db::Database, password: &str) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn handle_remove(database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
+fn handle_remove(args: &Vec<String>, database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
     print_and_flush("Enter name of password to remove: ")?;
-    let name_to_remove = read_input()?;
+    let name_to_remove = &args[2];
 
     let results = database.get_password(&name_to_remove, &password)?;
 
