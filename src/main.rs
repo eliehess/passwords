@@ -19,67 +19,28 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let option = match args[1].as_str() {
-        "add" => {
-            if args.len() != 3 {
-                print_usage();
-                return Ok(());
-            }
-            Opt::Add
-        },
-        "get" => {
-            if args.len() != 3 {
-                print_usage();
-                return Ok(());
-            }
-            Opt::Get
-        },
-        "all" => {
-            if args.len() != 2 {
-                print_usage();
-                return Ok(());
-            }
-            Opt::All
-        },
-        "remove" => {
-            if args.len() != 3 {
-                print_usage();
-                return Ok(());
-            }
-            Opt::Remove
-        },
+        "add" => { check_args(args.len(), 3); Opt::Add },
+        "get" => { check_args(args.len(), 3); Opt::Get },
+        "all" => { check_args(args.len(), 2); Opt::All },
+        "remove" => { check_args(args.len(), 3); Opt::Remove },
         "setup" => {
-            if args.len() != 2 {
-                print_usage();
-                return Ok(());
-            }
-            handle_encryption_setup(&data_dir)?;
+            check_args(args.len(), 2);
+            handle_setup(&data_dir)?;
             return Ok(());
         },
         "help" => {
-            println!("passwords is a command-line password manager. It supports the following options:");
-            println!("add <name>");
-            println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
-            println!("get <name>");
-            println!("\tRetrieves an entry for the given name and copies it to your clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
-            println!("remove <name");
-            println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
-            println!("all");
-            println!("\tRetrieves all name-password pairs and copies them, alphabetically, to your clipboard.");
-            println!("setup");
-            println!("\tPerforms all of the setup necessary to ensure data is secure when running the application for the first time.");
-            println!("help");
-            println!("\tDisplays this message");
-            return Ok(())
+            handle_help();
+            return Ok(());
         }
         _ => {
             print_usage();
-            return Ok(())
+            return Ok(());
         }
     };
 
     let encryption = match encryption::Encryption::use_existing(&data_dir) {
         Ok(enc) => enc,
-        Err(_e) => {
+        Err(_) => {
             println!("It looks like you haven't set up this application yet. Please run passwords setup to get started");
             return Ok(());
         }
@@ -102,11 +63,34 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn check_args(args_len: usize, target: usize) {
+    if args_len != target {
+        print_usage();
+        std::process::exit(0);
+    }
+}
+
 fn print_usage() {
     println!("Command not understood. Run passwords help for help");
 }
 
-fn handle_encryption_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn Error>> {
+fn handle_help() {
+    println!("passwords is a command-line password manager. It supports the following options:");
+    println!("add <name>");
+    println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
+    println!("get <name>");
+    println!("\tRetrieves an entry for the given name and copies it to your clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
+    println!("remove <name");
+    println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
+    println!("all");
+    println!("\tRetrieves all name-password pairs and copies them in alphabetical order to your clipboard.");
+    println!("setup");
+    println!("\tPerforms all of the setup necessary to ensure data is secure when running the application for the first time.");
+    println!("help");
+    println!("\tDisplays this message");
+}
+
+fn handle_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn Error>> {
     print_and_flush("Welcome! ")?;
 
     match encryption::Encryption::use_existing(&path) {
