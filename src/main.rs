@@ -1,77 +1,24 @@
 use std::{env, path, result::Result, error::Error};
 use passwords::{db, encryption, utils::{print_and_flush, read_password, read_input, set_clipboard}};
 
-enum Opt {
-    Add,
-    Get,
-    All,
-    Remove
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
-    let data_dir = env::current_exe()?.parent().unwrap().join(".data");
-
     if args.len() < 2 {
-        print_usage();
-        return Ok(());
+        print_usage_and_exit();
     }
 
-    let option = match args[1].as_str() {
-        "add" => { check_args(args.len(), 3); Opt::Add },
-        "get" => { check_args(args.len(), 3); Opt::Get },
-        "all" => { check_args(args.len(), 2); Opt::All },
-        "remove" => { check_args(args.len(), 3); Opt::Remove },
-        "setup" => {
-            check_args(args.len(), 2);
-            handle_setup(&data_dir)?;
-            return Ok(());
-        },
-        "help" => {
-            handle_help();
-            return Ok(());
-        }
-        _ => {
-            print_usage();
-            return Ok(());
-        }
-    };
-
-    let encryption = match encryption::Encryption::use_existing(&data_dir) {
-        Ok(enc) => enc,
-        Err(_) => {
-            println!("It looks like you haven't set up this application yet. Please run passwords setup to get started");
-            return Ok(());
-        }
-    };
-
-    print_and_flush("Enter master password: ")?;
-    let password = read_password()?;
-
-    encryption.check_password(&password)?;
-
-    let database = db::Database::new(&data_dir, encryption)?;
-
-    match option {
-        Opt::Add => handle_add(&args, &database, &password)?,
-        Opt::Get => handle_get(&args, &database, &password)?,
-        Opt::All => handle_all(&database, &password)?,
-        Opt::Remove => handle_remove(&args, &database, &password)?
-    };
+    match args[1].as_str() {
+        "add" => handle_add(&args)?,
+        "get" => handle_get(&args)?,
+        "all" => handle_all(&args)?,
+        "remove" => handle_remove(&args)?,
+        "setup" => handle_setup(&args)?,
+        "help" => handle_help(),
+        _ =>  print_usage_and_exit()
+    }; 
 
     Ok(())
-}
-
-fn check_args(args_len: usize, target: usize) {
-    if args_len != target {
-        print_usage();
-        std::process::exit(0);
-    }
-}
-
-fn print_usage() {
-    println!("Command not understood. Run passwords help for help");
 }
 
 fn handle_help() {
@@ -80,17 +27,21 @@ fn handle_help() {
     println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
     println!("get <name>");
     println!("\tRetrieves an entry for the given name and copies it to your clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
-    println!("remove <name");
+    println!("remove <name>");
     println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
     println!("all");
     println!("\tRetrieves all name-password pairs and copies them in alphabetical order to your clipboard.");
     println!("setup");
-    println!("\tPerforms all of the setup necessary to ensure data is secure when running the application for the first time.");
+    println!("\tPerforms all of the initial setup necessary to ensure data is secure.");
     println!("help");
     println!("\tDisplays this message");
 }
 
-fn handle_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn Error>> {
+fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    check_args(args.len(), 2);
+
+    let path = get_data_directory()?;
+
     print_and_flush("Welcome! ")?;
 
     match encryption::Encryption::use_existing(&path) {
@@ -101,7 +52,7 @@ fn handle_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn 
                 "y" | "Y" => (),
                 _ => {
                     println!("Aborting setup");
-                    std::process::exit(0);
+                    return Ok(());
                 }
             };
         },
@@ -122,14 +73,17 @@ fn handle_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn 
         println!("Your passwords don't match. Please try again.");
     };
 
-    let enc = encryption::Encryption::make_new(&path, &password)?;
+    encryption::Encryption::make_new(&path, &password)?;
     println!("Awesome! You're ready to go.");
 
-    Ok(enc)
+    Ok(())
 }
 
-fn handle_add(args: &Vec<String>, database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
+fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    check_args(args.len(), 3);
     let name_to_add = &args[2];
+
+    let (database, password) = prepare_db_and_password()?;
 
     let results = database.get_password(&name_to_add, &password)?;
 
@@ -159,8 +113,11 @@ fn handle_add(args: &Vec<String>, database: &db::Database, password: &str) -> Re
     Ok(())
 }
 
-fn handle_get(args: &Vec<String>, database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
+fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    check_args(args.len(), 3);
     let name_to_get = &args[2];
+
+    let (database, password) = prepare_db_and_password()?;
 
     let results = database.get_password(&name_to_get, &password)?;
 
@@ -176,7 +133,11 @@ fn handle_get(args: &Vec<String>, database: &db::Database, password: &str) -> Re
     Ok(())
 }
 
-fn handle_all(database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
+fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    check_args(args.len(), 2);
+
+    let (database, password) = prepare_db_and_password()?;
+
     print_and_flush("Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: ")?;
     let confirm = read_input()?;
 
@@ -197,9 +158,11 @@ fn handle_all(database: &db::Database, password: &str) -> Result<(), Box<dyn Err
     Ok(())
 }
 
-fn handle_remove(args: &Vec<String>, database: &db::Database, password: &str) -> Result<(), Box<dyn Error>> {
-    print_and_flush("Enter name of password to remove: ")?;
+fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    check_args(args.len(), 3);
     let name_to_remove = &args[2];
+
+    let (database, password) = prepare_db_and_password()?;
 
     let results = database.get_password(&name_to_remove, &password)?;
 
@@ -221,4 +184,40 @@ fn handle_remove(args: &Vec<String>, database: &db::Database, password: &str) ->
     };
 
     Ok(())
+}
+
+fn prepare_db_and_password() -> Result<(db::Database, String), Box<dyn Error>> {
+    let data_dir = get_data_directory()?;
+
+    let encryption = match encryption::Encryption::use_existing(&data_dir) {
+        Ok(enc) => enc,
+        Err(_) => {
+            println!("It looks like you haven't set up this application yet. Please run passwords setup to get started");
+            std::process::exit(0);
+        }
+    };
+
+    print_and_flush("Enter master password: ")?;
+    let password = read_password()?;
+
+    encryption.check_password(&password)?;
+
+    let database = db::Database::new(&data_dir, encryption)?;
+
+    Ok((database, password))
+}
+
+fn check_args(args_len: usize, target: usize) {
+    if args_len != target {
+        print_usage_and_exit();
+    }
+}
+
+fn print_usage_and_exit() {
+    println!("Command not understood. Run passwords help for help");
+    std::process::exit(0);
+}
+
+fn get_data_directory() -> Result<path::PathBuf, Box<dyn Error>> {
+    Ok(env::current_exe()?.parent().expect("executables are always in a folder").join(".data"))
 }
