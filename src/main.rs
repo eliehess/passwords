@@ -55,6 +55,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             handle_encryption_setup(&data_dir)?;
             return Ok(());
         },
+        "help" => {
+            println!("passwords is a command-line password manager. It supports the following options:");
+            println!("add <name>");
+            println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
+            println!("get <name>");
+            println!("\tRetrieves an entry for the given name and copies it to your clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
+            println!("remove <name");
+            println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
+            println!("all");
+            println!("\tRetrieves all name-password pairs and copies them, alphabetically, to your clipboard.");
+            println!("setup");
+            println!("\tPerforms all of the setup necessary to ensure data is secure when running the application for the first time.");
+            println!("help");
+            println!("\tDisplays this message");
+            return Ok(())
+        }
         _ => {
             print_usage();
             return Ok(())
@@ -87,7 +103,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn print_usage() {
-    println!("Usage: passwords [add, get, all, remove] <name>");
+    println!("Command not understood. Run passwords help for help");
 }
 
 fn handle_encryption_setup(path: &path::PathBuf) -> Result<encryption::Encryption, Box<dyn Error>> {
