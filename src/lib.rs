@@ -50,7 +50,7 @@ pub mod db {
             self.connection.execute(format!("DELETE FROM passwords WHERE name = '{}'", name))
         }
         
-        pub fn get_all_passwords(&self, password: &str) ->Result<Vec<String>, Box<dyn Error>> {
+        pub fn get_all_passwords(&self, password: &str) -> Result<Vec<String>, Box<dyn Error>> {
             let mut statement = self.connection.prepare("SELECT name, password FROM passwords ORDER BY name ASC")?;
         
             let mut fin: Vec<String> = Vec::new();
@@ -59,6 +59,18 @@ pub mod db {
                 let name = statement.read::<String>(0)?;
                 let password = self.encryption.decrypt(&hex::decode(statement.read::<String>(1)?)?, &password)?;
                 fin.push(format!("{}: {}", name, password));
+            }
+        
+            Ok(fin)
+        }
+
+        pub fn get_all_names(&self) -> Result<Vec<String>, Box<dyn Error>> {
+            let mut statement = self.connection.prepare("SELECT name FROM passwords ORDER BY name ASC")?;
+        
+            let mut fin: Vec<String> = Vec::new();
+        
+            while let sqlite::State::Row = statement.next()? {
+                fin.push(format!("{}", statement.read::<String>(0)?));
             }
         
             Ok(fin)

@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "get" => handle_get(&args)?,
         "all" => handle_all(&args)?,
         "remove" => handle_remove(&args)?,
+        "list" => handle_list(&args)?,
         "setup" => handle_setup(&args)?,
         "help" => handle_help(),
         _ =>  print_usage_and_exit()
@@ -32,6 +33,8 @@ fn handle_help() {
     println!("all");
     println!("\tRetrieves all name-password pairs and copies them in alphabetical order to your clipboard.");
     println!("setup");
+    println!("list");
+    println!("\tRetrieves all names (no passwords) and prints them to the console");
     println!("\tPerforms all of the initial setup necessary to ensure data is secure.");
     println!("help");
     println!("\tDisplays this message");
@@ -182,6 +185,24 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         },
         _ => panic!("Somehow there's more than one entry for {}", name_to_remove)
     };
+
+    Ok(())
+}
+
+fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
+    check_args(args.len(), 2);
+
+    let (database, _password) = prepare_db_and_password()?;
+
+    let results = database.get_all_names()?;
+
+    if results.len() == 0 {
+        println!("No entries found");
+    } else {
+        for result in results {
+            println!("{}", result);
+        }
+    }
 
     Ok(())
 }
