@@ -86,6 +86,7 @@ pub mod encryption {
     static PUBLIC_KEY: &str = "public.key";
     static PRIVATE_KEY: &str = "private.key";
     static PASSWORD_HASH: &str = "password.hash";
+    static DB_LOCATION: &str = "passwords.db";
 
     pub struct Encryption {
         public_key: Vec<u8>,
@@ -116,6 +117,7 @@ pub mod encryption {
                 fs::create_dir_all(&path)?;
             }
     
+            fs::remove_file(path.join(DB_LOCATION))?;
             fs::write(path.join(PUBLIC_KEY), &public_key)?;
             fs::write(path.join(PRIVATE_KEY), &private_key)?;
             fs::write(path.join(PASSWORD_HASH), &password_hash)?;
@@ -191,5 +193,33 @@ pub mod utils {
 
     pub fn set_clipboard(text: &str) -> io::Result<()> {
         Clipboard::new()?.set_string(text)
+    }
+}
+
+pub mod errors {
+    use std::error::Error;
+    use std::fmt;
+
+    #[derive(Debug)]
+    pub struct ArgsError {
+        details: String
+    }
+
+    impl ArgsError {
+        pub fn new(msg: &str) -> ArgsError {
+            ArgsError { details: msg.to_string() }
+        }
+    }
+
+    impl fmt::Display for ArgsError {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "{}", self.details)
+        }
+    }
+
+    impl Error for ArgsError {
+        fn description(&self) -> &str {
+            &self.details
+        }
     }
 }

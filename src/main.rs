@@ -1,23 +1,23 @@
 use std::{env, path, result::Result, error::Error};
 use passwords::{db, encryption, utils::{print_and_flush, read_password, read_input, set_clipboard}};
+use passwords::errors::ArgsError;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
-        print_usage_and_exit();
+    match args.get(1) {
+        Some(s) => match s.as_str() {
+            "add" => handle_add(&args)?,
+            "get" => handle_get(&args)?,
+            "all" => handle_all(&args)?,
+            "remove" => handle_remove(&args)?,
+            "list" => handle_list(&args)?,
+            "setup" => handle_setup(&args)?,
+            "help" => handle_help(),
+            _ => { println!("Option not understood. Run passwords help for help") }
+        },
+        None => { println!("Please enter an option. Run passwords help for help") }
     }
-
-    match args[1].as_str() {
-        "add" => handle_add(&args)?,
-        "get" => handle_get(&args)?,
-        "all" => handle_all(&args)?,
-        "remove" => handle_remove(&args)?,
-        "list" => handle_list(&args)?,
-        "setup" => handle_setup(&args)?,
-        "help" => handle_help(),
-        _ =>  print_usage_and_exit()
-    }; 
 
     Ok(())
 }
@@ -27,21 +27,23 @@ fn handle_help() {
     println!("add <name>");
     println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
     println!("get <name>");
-    println!("\tRetrieves an entry for the given name and copies it to your clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
+    println!("\tRetrieves an entry for the given name and copies it to the clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
     println!("remove <name>");
     println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
     println!("all");
-    println!("\tRetrieves all name-password pairs and copies them in alphabetical order to your clipboard.");
+    println!("\tRetrieves all name-password pairs and copies them in alphabetical order to the clipboard.");
     println!("setup");
+    println!("\tPerforms all of the initial setup necessary to secure data.");
     println!("list");
     println!("\tRetrieves all names (no passwords) and prints them to the console");
-    println!("\tPerforms all of the initial setup necessary to ensure data is secure.");
     println!("help");
     println!("\tDisplays this message");
 }
 
 fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    check_args(args.len(), 2);
+    if args.len() != 2 {
+        return Err(Box::new(ArgsError::new("setup takes no arguments")));
+    }
 
     let path = get_data_directory()?;
 
@@ -50,8 +52,7 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     match encryption::Encryption::use_existing(&path) {
         Ok(_) => {
             print_and_flush("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ")?;
-            let confirm = read_input()?;
-            match confirm.as_str() {
+            match read_input()?.as_str() {
                 "y" | "Y" => (),
                 _ => {
                     println!("Aborting setup");
@@ -83,7 +84,10 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    check_args(args.len(), 3);
+    if args.len() != 3 {
+        return Err(Box::new(ArgsError::new("add takes one argument")));
+    }
+
     let name_to_add = &args[2];
 
     let (database, password) = prepare_db_and_password()?;
@@ -117,7 +121,10 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    check_args(args.len(), 3);
+    if args.len() != 3 {
+        return Err(Box::new(ArgsError::new("get takes one argument")));
+    }
+
     let name_to_get = &args[2];
 
     let (database, password) = prepare_db_and_password()?;
@@ -137,14 +144,15 @@ fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    check_args(args.len(), 2);
+    if args.len() != 2 {
+        return Err(Box::new(ArgsError::new("all takes no arguments")));
+    }
 
     let (database, password) = prepare_db_and_password()?;
 
     print_and_flush("Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: ")?;
-    let confirm = read_input()?;
 
-    match confirm.as_str() {
+    match read_input()?.as_str() {
         "y" | "Y" => { 
             let results = database.get_all_passwords(&password)?;
 
@@ -162,7 +170,10 @@ fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    check_args(args.len(), 3);
+    if args.len() != 3 {
+        return Err(Box::new(ArgsError::new("remove takes one argument")));
+    }
+
     let name_to_remove = &args[2];
 
     let (database, password) = prepare_db_and_password()?;
@@ -173,9 +184,8 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         0 => println!("You haven't saved a password for {}", name_to_remove),
         1 => {
             print_and_flush(format!("Are you sure you want to remove password for {}? y/N: ", name_to_remove))?;
-            let confirm = read_input()?;
 
-            match confirm.as_str() {
+            match read_input()?.as_str() {
                 "y" | "Y" => {
                     database.remove_password(&name_to_remove)?;
                     println!("Successfully removed password for {}", name_to_remove);
@@ -190,7 +200,9 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 }
 
 fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    check_args(args.len(), 2);
+    if args.len() != 2 {
+        return Err(Box::new(ArgsError::new("list takes no arguments")));
+    }
 
     let (database, _password) = prepare_db_and_password()?;
 
@@ -199,9 +211,7 @@ fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if results.len() == 0 {
         println!("No entries found");
     } else {
-        for result in results {
-            println!("{}", result);
-        }
+        println!("{}", results.join("\n"));
     }
 
     Ok(())
@@ -226,17 +236,6 @@ fn prepare_db_and_password() -> Result<(db::Database, String), Box<dyn Error>> {
     let database = db::Database::new(&data_dir, encryption)?;
 
     Ok((database, password))
-}
-
-fn check_args(args_len: usize, target: usize) {
-    if args_len != target {
-        print_usage_and_exit();
-    }
-}
-
-fn print_usage_and_exit() {
-    println!("Command not understood. Run passwords help for help");
-    std::process::exit(0);
 }
 
 fn get_data_directory() -> Result<path::PathBuf, Box<dyn Error>> {
