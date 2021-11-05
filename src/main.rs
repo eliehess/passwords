@@ -1,6 +1,7 @@
-use std::{env, path, result::Result, error::Error};
-use passwords::{db, encryption, utils::{print_and_flush, read_password, read_input, set_clipboard}};
-use passwords::errors::ArgsError;
+use std::{env, path, fmt, io::{self, Write}, result::Result, error::Error};
+use passwords::db;
+use rpassword;
+use clipboard_win::Clipboard;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
@@ -42,33 +43,37 @@ fn handle_help() {
 
 fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if args.len() != 2 {
-        return Err(Box::new(ArgsError::new("setup takes no arguments")));
+        return Err(Box::new(GenericError::new("setup takes no arguments")));
     }
 
     let path = get_data_directory()?;
 
     print_and_flush("Welcome! ")?;
 
-    match encryption::Encryption::use_existing(&path) {
-        Ok(_) => {
-            print_and_flush("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ")?;
-            match read_input()?.as_str() {
-                "y" | "Y" => (),
-                _ => {
-                    println!("Aborting setup");
-                    return Ok(());
-                }
-            };
-        },
-        Err(_) => ()
+    fn confirm_delete(path: &path::PathBuf, message: &str) -> Result<(), Box<dyn Error>> {
+        print_and_flush(message)?;
+        match read_input()?.as_str() {
+            "y" | "Y" => db::delete(&path)?,
+            _ => {
+                println!("Aborting setup");
+                std::process::exit(0);
+            }
+        };
+        Ok(())
+    }
+
+    match db::db_exists(&path) {
+        db::FileStatus::None => (),
+        db::FileStatus::Some => confirm_delete(&path, "It looks like some configuration files are missing. Are you sure you want to overwrite them? This will clear the stored data. y/N ")?,
+        db::FileStatus::All => confirm_delete(&path, "It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ")?
     };
 
     let password = loop {
         print_and_flush("Please choose a master password: ")?;
-        let init_password = read_password()?;
+        let init_password = rpassword::read_password()?;
 
         print_and_flush("Please confirm your master password: ")?;
-        let confirm_init_password = read_password()?;
+        let confirm_init_password = rpassword::read_password()?;
 
         if init_password == confirm_init_password {
             break init_password;
@@ -77,7 +82,7 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         println!("Your passwords don't match. Please try again.");
     };
 
-    encryption::Encryption::make_new(&path, &password)?;
+    db::create_new(&path, &password)?;
     println!("Awesome! You're ready to go.");
 
     Ok(())
@@ -85,7 +90,7 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
 fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if args.len() != 3 {
-        return Err(Box::new(ArgsError::new("add takes one argument")));
+        return Err(Box::new(GenericError::new("add takes one argument")));
     }
 
     let name_to_add = &args[2];
@@ -98,10 +103,10 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         0 => {
             let password_to_add = loop {
                 print_and_flush(format!("Enter password to add for {}: ", name_to_add))?;
-                let password_to_add = read_password()?;
+                let password_to_add = rpassword::read_password()?;
                 
                 print_and_flush(format!("Confirm password to add for {}: ", name_to_add))?;
-                let password_confirm = read_password()?;
+                let password_confirm = rpassword::read_password()?;
         
                 if password_to_add == password_confirm {
                     break password_to_add;
@@ -122,7 +127,7 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
 fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if args.len() != 3 {
-        return Err(Box::new(ArgsError::new("get takes one argument")));
+        return Err(Box::new(GenericError::new("get takes one argument")));
     }
 
     let name_to_get = &args[2];
@@ -134,7 +139,7 @@ fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     match results.len() {
         0 => println!("No password found for {}", name_to_get),
         1 => {
-            set_clipboard(results.get(0).unwrap())?;
+            Clipboard::new()?.set_string(results.get(0).unwrap())?;
             println!("Copied password for {} to clipboard", name_to_get);
         }
         _ => panic!("Somehow there's more than one entry for {}", name_to_get)
@@ -145,7 +150,7 @@ fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
 fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if args.len() != 2 {
-        return Err(Box::new(ArgsError::new("all takes no arguments")));
+        return Err(Box::new(GenericError::new("all takes no arguments")));
     }
 
     let (database, password) = prepare_db_and_password()?;
@@ -159,7 +164,11 @@ fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
             if results.len() == 0 {
                 println!("No passwords found");
             } else {
-                set_clipboard(&results.join("\n"))?;
+                let mut joined = String::new();
+                for result in results {
+                    joined += format!("{}: {}\n", result.0, result.1).as_str();
+                }
+                Clipboard::new()?.set_string(joined.as_str())?;
                 println!("Copied all passwords to clipboard");
             }
         },
@@ -171,7 +180,7 @@ fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
 fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if args.len() != 3 {
-        return Err(Box::new(ArgsError::new("remove takes one argument")));
+        return Err(Box::new(GenericError::new("remove takes one argument")));
     }
 
     let name_to_remove = &args[2];
@@ -201,7 +210,7 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
 fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     if args.len() != 2 {
-        return Err(Box::new(ArgsError::new("list takes no arguments")));
+        return Err(Box::new(GenericError::new("list takes no arguments")));
     }
 
     let (database, _password) = prepare_db_and_password()?;
@@ -220,24 +229,56 @@ fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 fn prepare_db_and_password() -> Result<(db::Database, String), Box<dyn Error>> {
     let data_dir = get_data_directory()?;
 
-    let encryption = match encryption::Encryption::use_existing(&data_dir) {
-        Ok(enc) => enc,
-        Err(_) => {
-            println!("It looks like you haven't set up this application yet. Please run passwords setup to get started");
-            std::process::exit(0);
-        }
+    match db::db_exists(&data_dir) {
+        db::FileStatus::All => (),
+        db::FileStatus::Some => return Err(Box::new(GenericError::new(
+            "It looks like some configuration files are missing. Please run passwords setup to get started."))),
+        db::FileStatus::None => return Err(Box::new(GenericError::new(
+            "It looks like you haven't set up this application yet. Please run passwords setup to get started.")))
     };
 
     print_and_flush("Enter master password: ")?;
-    let password = read_password()?;
+    let password = rpassword::read_password()?;
 
-    encryption.check_password(&password)?;
-
-    let database = db::Database::new(&data_dir, encryption)?;
+    let database = db::use_existing(&data_dir, &password)?;
 
     Ok((database, password))
 }
 
 fn get_data_directory() -> Result<path::PathBuf, Box<dyn Error>> {
     Ok(env::current_exe()?.parent().expect("executables are always in a folder").join(".data"))
+}
+
+fn print_and_flush(output: impl AsRef<str>) -> io::Result<()> {
+    print!("{}", output.as_ref());
+    io::stdout().flush()
+}
+
+fn read_input() -> io::Result<String> {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim().to_string())
+}
+
+#[derive(Debug)]
+struct GenericError {
+    details: String
+}
+
+impl GenericError {
+    pub fn new(msg: &str) -> GenericError {
+        GenericError { details: msg.to_string() }
+    }
+}
+
+impl fmt::Display for GenericError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.details)
+    }
+}
+
+impl Error for GenericError {
+    fn description(&self) -> &str {
+        &self.details
+    }
 }
