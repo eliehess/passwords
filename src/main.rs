@@ -24,25 +24,23 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 macro_rules! exit {
-    ( $( $x:expr ),* ) => {
-        {
-            println!($($x),*);
-            std::process::exit(0);
-        }
-    };
+    ($($x:expr),*) => {{
+        println!($($x),*);
+        std::process::exit(0);
+    }};
 }
 
 macro_rules! print_and_flush {
-    ( $( $x:expr ),* ) => {
-        {
-            print!($($x),*);
-            io::stdout().flush().unwrap();
-        }
+    ($($x:expr),*) => {
+        print!($($x),*);
+        io::stdout().flush().unwrap();
     };
 }
 
 fn handle_help() {
     println!("passwords is a command-line password manager. It supports the following options:");
+    println!("setup");
+    println!("\tPerforms all of the initial setup necessary to secure data. Must be run once when this program is first used.");
     println!("add <name>");
     println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
     println!("get <name>");
@@ -51,8 +49,6 @@ fn handle_help() {
     println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
     println!("all");
     println!("\tRetrieves all name-password pairs and copies them in alphabetical order to the clipboard.");
-    println!("setup");
-    println!("\tPerforms all of the initial setup necessary to secure data.");
     println!("list");
     println!("\tRetrieves all names (no passwords) and prints them to the console");
     println!("help");
@@ -68,20 +64,20 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     print_and_flush!("Welcome! ");
 
-    match db::db_exists(&path) {
+    match db::Database::files_exist(&path) {
         db::FileStatus::None => (),
         db::FileStatus::Some => {
             print_and_flush!("It looks like some configuration files are missing. Are you sure you want to overwrite the ones that remain? This will clear the stored data. y/N ");
             match read_input()?.as_str() {
-                "y" | "Y" => db::delete(&path)?,
-                _ => { exit!("Aborting setup"); }
+                "y" | "Y" => db::Database::delete(&path)?,
+                _ => exit!("Aborting setup")
             }
         },
         db::FileStatus::All => {
             print_and_flush!("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ");
             match read_input()?.as_str() {
-                "y" | "Y" => db::delete(&path)?,
-                _ => { exit!("Aborting setup"); }
+                "y" | "Y" => db::Database::delete(&path)?,
+                _ => exit!("Aborting setup")
             };
         }
     };
@@ -100,7 +96,7 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         println!("Your passwords don't match. Please try again.");
     };
 
-    db::create_new(&path, &password)?;
+    db::Database::create_new(&path, &password)?;
     println!("Awesome! You're ready to go.");
 
     Ok(())
@@ -246,7 +242,7 @@ fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
     let data_dir = get_data_directory()?;
 
-    match db::db_exists(&data_dir) {
+    match db::Database::files_exist(&data_dir) {
         db::FileStatus::All => (),
         db::FileStatus::Some => exit!("It looks like some configuration files are missing. Please run passwords setup to get started."),
         db::FileStatus::None => exit!("It looks like you haven't set up this application yet. Please run passwords setup to get started.")
@@ -255,7 +251,7 @@ fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
     print_and_flush!("Enter master password: ");
     let password = rpassword::read_password()?;
 
-    let database = match db::use_existing(&data_dir, &password) {
+    let database = match db::Database::use_existing(&data_dir, &password) {
         Ok(db) => db,
         Err(e) => match e {
             db::DatabaseError::Authentication { message } => exit!("An error occurred during authentication: {}", message),
@@ -267,7 +263,7 @@ fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
     Ok(database)
 }
 
-fn get_data_directory() -> Result<path::PathBuf, Box<dyn Error>> {
+fn get_data_directory() -> io::Result<path::PathBuf> {
     Ok(env::current_exe()?.parent().expect("executables are always in a folder").join(".data"))
 }
 

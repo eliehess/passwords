@@ -1,5 +1,5 @@
 pub mod db {
-    use std::{path, fs, io::{self, Read}};
+    use std::{path, fs, result, io::{self, Read}};
     use sqlite;
     use snafu::{Snafu, ResultExt};
     use openssl::{symm::Cipher, rsa::{Padding, Rsa}};
@@ -48,6 +48,14 @@ pub mod db {
         }
     }
 
+    pub type Result<T> = result::Result<T, DatabaseError>;
+
+    pub enum FileStatus {
+        All,
+        Some,
+        None
+    }
+
     pub struct Database {
         connection: sqlite::Connection,
         encryption: Encryption,
@@ -55,11 +63,11 @@ pub mod db {
     }
 
     impl Database {
-        pub fn add_password(&self, name: &str, password_to_add: &str) -> Result<(), DatabaseError> {
-            let enc_password_to_add = hex::encode(self.encryption.encrypt(password_to_add).context(OpenSSL)?);
+        pub fn add_password(&self, name_to_add: &str, password_to_add: &str) -> Result<()> {
+            let enc_password_to_add = hex::encode(self.encryption.encrypt(password_to_add)?);
 
             let mut statement = self.connection.prepare("INSERT INTO passwords VALUES (?1, ?2)").context(SQLite)?;
-            statement.bind(1, name).context(SQLite)?;
+            statement.bind(1, name_to_add).context(SQLite)?;
             statement.bind(2, enc_password_to_add.as_str()).context(SQLite)?;
 
             while let sqlite::State::Row = statement.next().context(SQLite)? {}
@@ -67,10 +75,10 @@ pub mod db {
             Ok(())
         }
         
-        pub fn get_password(&self, name: &str) -> Result<Vec<String>, DatabaseError> {
+        pub fn get_password(&self, name_to_get: &str) -> Result<Vec<String>> {
             let mut statement = self.connection.prepare("SELECT password FROM passwords WHERE name = ?").context(SQLite)?;
         
-            statement.bind(1, name).context(SQLite)?;
+            statement.bind(1, name_to_get).context(SQLite)?;
         
             let mut fin: Vec<String> = Vec::new();
         
@@ -81,14 +89,17 @@ pub mod db {
             Ok(fin)
         }
         
-        pub fn remove_password(&self, name: &str) -> sqlite::Result<()> {
+        pub fn remove_password(&self, name_to_remove: &str) -> sqlite::Result<()> {
             let mut statement = self.connection.prepare("DELETE FROM passwords WHERE name = ?")?;
-            statement.bind(1, name)?;
+
+            statement.bind(1, name_to_remove)?;
+
             while let sqlite::State::Row = statement.next()? {}
+
             Ok(())
         }
-        
-        pub fn get_all_passwords(&self) -> Result<Vec<(String, String)>, DatabaseError> {
+
+        pub fn get_all_passwords(&self) -> Result<Vec<(String, String)>> {
             let mut statement = self.connection.prepare("SELECT name, password FROM passwords ORDER BY name ASC").context(SQLite)?;
         
             let mut fin: Vec<(String, String)> = Vec::new();
@@ -102,68 +113,62 @@ pub mod db {
             Ok(fin)
         }
 
-        pub fn get_all_names(&self) -> Result<Vec<String>, DatabaseError> {
+        pub fn get_all_names(&self) -> Result<Vec<String>> {
             let mut statement = self.connection.prepare("SELECT name FROM passwords ORDER BY name ASC").context(SQLite)?;
         
             let mut fin: Vec<String> = Vec::new();
         
             while let sqlite::State::Row = statement.next().context(SQLite)? {
-                fin.push(format!("{}", statement.read::<String>(0).context(SQLite)?));
+                fin.push(statement.read::<String>(0).context(SQLite)?);
             }
         
             Ok(fin)
         }
-    }
 
-    pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Database, DatabaseError> {
-        match db_exists(&path) {
-            FileStatus::All => { return File { message: "Database already exists" }.fail(); },
-            FileStatus::Some => { return File { message: "Database corrupted" }.fail(); },
-            FileStatus::None => ()
+        pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Database> {
+            match Database::files_exist(&path) {
+                FileStatus::All => { return File { message: "Database already exists" }.fail(); },
+                FileStatus::Some => { return File { message: "Database corrupted" }.fail(); },
+                FileStatus::None => ()
+            }
+    
+            let encryption = Encryption::create_new(path, password)?;
+    
+            let connection = sqlite::open(path.join(DB_LOCATION)).context(SQLite)?;
+    
+            let db = Database { connection, encryption, password: String::from(password) };
+    
+            db.connection.execute("CREATE TABLE IF NOT EXISTS passwords (name TEXT, password TEXT, PRIMARY KEY (name))").context(SQLite)?;
+    
+            Ok(db)
         }
-
-        let encryption = Encryption::create_new(path, password)?;
-
-        let connection = sqlite::open(path.join(DB_LOCATION)).context(SQLite)?;
-
-        let db = Database { connection, encryption, password: String::from(password) };
-
-        db.connection.execute("CREATE TABLE IF NOT EXISTS passwords (name TEXT, password TEXT, PRIMARY KEY (name))").context(SQLite)?;
-
-        Ok(db)
-    }
-
-    pub fn use_existing(path: &path::PathBuf, password: &str) -> Result<Database, DatabaseError> {
-        match db_exists(&path) {
-            FileStatus::All => (),
-            FileStatus::Some => { return File { message: "Database corrupted" }.fail(); },
-            FileStatus::None => { return File { message: "No database exists" }.fail(); }
+    
+        pub fn use_existing(path: &path::PathBuf, password: &str) -> Result<Database> {
+            match Database::files_exist(&path) {
+                FileStatus::All => (),
+                FileStatus::Some => { return File { message: "Database corrupted" }.fail(); },
+                FileStatus::None => { return File { message: "No database exists" }.fail(); }
+            }
+    
+            let connection = sqlite::open(path.join(DB_LOCATION)).context(SQLite)?;
+    
+            let encryption = Encryption::use_existing(path, password)?;
+    
+            Ok(Database { connection, encryption, password: String::from(password) })
         }
-
-        let connection = sqlite::open(path.join(DB_LOCATION)).context(SQLite)?;
-
-        let encryption = Encryption::use_existing(path, password)?;
-
-        Ok(Database { connection, encryption, password: String::from(password) })
-    }
-
-    pub fn db_exists(path: &path::PathBuf) -> FileStatus {
-        match Encryption::encryption_exists(path) {
-            FileStatus::All => if path.join(DB_LOCATION).exists() { FileStatus::All } else { FileStatus::Some },
-            FileStatus::Some => FileStatus::Some,
-            FileStatus::None => if path.join(DB_LOCATION).exists() { FileStatus::Some } else { FileStatus::None} 
+    
+        pub fn files_exist(path: &path::PathBuf) -> FileStatus {
+            match Encryption::encryption_exists(path) {
+                FileStatus::All => if path.join(DB_LOCATION).exists() { FileStatus::All } else { FileStatus::Some },
+                FileStatus::Some => FileStatus::Some,
+                FileStatus::None => if path.join(DB_LOCATION).exists() { FileStatus::Some } else { FileStatus::None} 
+            }
         }
-    }
-
-    pub fn delete(path: &path::PathBuf) -> io::Result<()> {
-        Encryption::delete(path)?;
-        fs::remove_file(path.join(DB_LOCATION))
-    }
-
-    pub enum FileStatus {
-        All,
-        Some,
-        None
+    
+        pub fn delete(path: &path::PathBuf) -> io::Result<()> {
+            Encryption::delete(path)?;
+            fs::remove_file(path.join(DB_LOCATION))
+        }
     }
 
     struct Encryption {
@@ -173,39 +178,33 @@ pub mod db {
     }
 
     impl Encryption {
-        pub fn encrypt(&self, text: &str) -> Result<Vec<u8>, openssl::error::ErrorStack> {
-            let pubkey = Rsa::public_key_from_pem_pkcs1(&self.public_key)?;
+        pub fn encrypt(&self, text: &str) -> Result<Vec<u8>> {
+            let pubkey = Rsa::public_key_from_pem_pkcs1(&self.public_key).context(OpenSSL)?;
             let mut encrypted = vec![0; pubkey.size() as usize];
-            pubkey.public_encrypt(text.as_bytes(), &mut encrypted, Padding::PKCS1)?;
+            pubkey.public_encrypt(text.as_bytes(), &mut encrypted, Padding::PKCS1).context(OpenSSL)?;
+
             Ok(encrypted)
         }
     
-        pub fn decrypt(&self, text: &Vec<u8>, password: &str) -> Result<String, DatabaseError> {
+        pub fn decrypt(&self, text: &Vec<u8>, password: &str) -> Result<String> {
             let privkey = Rsa::private_key_from_pem_passphrase(&self.private_key, password.as_bytes()).context(OpenSSL)?; 
             let mut decrypted = vec![0; privkey.size() as usize];
             let len = privkey.private_decrypt(&text, &mut decrypted, Padding::PKCS1).context(OpenSSL)?;
+
             Ok(String::from_utf8(decrypted[..len].to_vec()).context(Utf8)?)
         }
-
-        pub fn use_existing(path: &path::PathBuf, password: &str) -> Result<Encryption, DatabaseError> {
-            match Encryption::encryption_exists(&path) {
-                FileStatus::All => (),
-                FileStatus::Some => { return  File { message: "Keys corrupted" }.fail(); },
-                FileStatus::None => { return  File { message: "Keys don't exist" }.fail(); }
+    
+        pub fn check_password(&self, password: &str) -> Result<()> {
+            if hash(password) != self.password_hash {
+                Authentication { message: "Incorrect password" }.fail()
+            } else if let Err(_) = Rsa::private_key_from_pem_passphrase(&self.private_key, password.as_bytes()) {
+                Authentication { message: "Password hash corrupted" }.fail()
+            } else {
+                Ok(())
             }
-    
-            let public_key = read_file(&path.join(PUBLIC_KEY)).context(Io)?;
-            let private_key = read_file(&path.join(PRIVATE_KEY)).context(Io)?;
-            let password_hash = String::from_utf8(read_file(&path.join(PASSWORD_HASH)).context(Io)?).context(Utf8)?;
-    
-            let encryption = Encryption { public_key, private_key, password_hash };
-    
-            Encryption::check_password(&encryption, password)?;
-    
-            Ok(encryption)
         }
     
-        pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Encryption, DatabaseError> {
+        pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Encryption> {
             match Encryption::encryption_exists(&path) {
                 FileStatus::All => { return File { message: "Keys already exist" }.fail(); },
                 FileStatus::Some => { return File { message: "Keys corrupted" }.fail(); },
@@ -224,17 +223,26 @@ pub mod db {
             fs::write(path.join(PUBLIC_KEY), &public_key).context(Io)?;
             fs::write(path.join(PRIVATE_KEY), &private_key).context(Io)?;
             fs::write(path.join(PASSWORD_HASH), &password_hash).context(Io)?;
+
             Ok(Encryption { public_key, private_key, password_hash })
         }
-    
-        pub fn check_password(encryption: &Encryption, password: &str) -> Result<(), DatabaseError> {
-            if hash(password) != encryption.password_hash {
-                Authentication { message: "Incorrect password" }.fail()
-            } else if let Err(_) = Rsa::private_key_from_pem_passphrase(&encryption.private_key, password.as_bytes()) {
-                Authentication { message: "Password hash corrupted" }.fail()
-            } else {
-                Ok(())
+
+        pub fn use_existing(path: &path::PathBuf, password: &str) -> Result<Encryption> {
+            match Encryption::encryption_exists(&path) {
+                FileStatus::All => (),
+                FileStatus::Some => { return  File { message: "Keys corrupted" }.fail(); },
+                FileStatus::None => { return  File { message: "Keys don't exist" }.fail(); }
             }
+    
+            let public_key = read_file(&path.join(PUBLIC_KEY)).context(Io)?;
+            let private_key = read_file(&path.join(PRIVATE_KEY)).context(Io)?;
+            let password_hash = String::from_utf8(read_file(&path.join(PASSWORD_HASH)).context(Io)?).context(Utf8)?;
+    
+            let encryption = Encryption { public_key, private_key, password_hash };
+
+            encryption.check_password(password)?;
+    
+            Ok(encryption)
         }
     
         pub fn encryption_exists(path: &path::PathBuf) -> FileStatus {
@@ -245,15 +253,14 @@ pub mod db {
                 0 => FileStatus::None,
                 1 | 2 => FileStatus::Some,
                 3 => FileStatus::All,
-                _ => panic!("This should never happen")
+                _ => panic!("Somehow added three booleans and got a number not between 0 and 3")
             }
         }
     
         pub fn delete(path: &path::PathBuf) -> io::Result<()> {
             fs::remove_file(path.join(PUBLIC_KEY))?;
             fs::remove_file(path.join(PRIVATE_KEY))?;
-            fs::remove_file(path.join(PASSWORD_HASH))?;
-            Ok(())
+            fs::remove_file(path.join(PASSWORD_HASH))
         }
     }
 
