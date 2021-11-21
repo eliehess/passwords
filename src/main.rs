@@ -104,9 +104,9 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let name_to_add = &args[2];
 
-    let (database, password) = prepare_db_and_password()?;
+    let database = prepare_db_and_password()?;
 
-    let results = database.get_password(&name_to_add, &password)?;
+    let results = database.get_password(&name_to_add)?;
 
     match results.len() {
         0 => {
@@ -141,9 +141,9 @@ fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let name_to_get = &args[2];
 
-    let (database, password) = prepare_db_and_password()?;
+    let database = prepare_db_and_password()?;
 
-    let results = database.get_password(&name_to_get, &password)?;
+    let results = database.get_password(&name_to_get)?;
 
     match results.len() {
         0 => println!("No password found for {}", name_to_get),
@@ -162,13 +162,13 @@ fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
        exit!("all takes no arguments");
     }
 
-    let (database, password) = prepare_db_and_password()?;
+    let database = prepare_db_and_password()?;
 
     print_and_flush("Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: ")?;
 
     match read_input()?.as_str() {
         "y" | "Y" => { 
-            let results = database.get_all_passwords(&password)?;
+            let results = database.get_all_passwords()?;
 
             if results.len() == 0 {
                 println!("No passwords found");
@@ -194,9 +194,9 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let name_to_remove = &args[2];
 
-    let (database, password) = prepare_db_and_password()?;
+    let database = prepare_db_and_password()?;
 
-    let results = database.get_password(&name_to_remove, &password)?;
+    let results = database.get_password(&name_to_remove)?;
 
     match results.len() {
         0 => println!("You haven't saved a password for {}", name_to_remove),
@@ -222,7 +222,7 @@ fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
         exit!("list takes no arguments");
     }
 
-    let (database, _password) = prepare_db_and_password()?;
+    let database = prepare_db_and_password()?;
 
     let results = database.get_all_names()?;
 
@@ -235,7 +235,7 @@ fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn prepare_db_and_password() -> Result<(db::Database, String), Box<dyn Error>> {
+fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
     let data_dir = get_data_directory()?;
 
     match db::db_exists(&data_dir) {
@@ -256,7 +256,7 @@ fn prepare_db_and_password() -> Result<(db::Database, String), Box<dyn Error>> {
         }
     };
 
-    Ok((database, password))
+    Ok(database)
 }
 
 fn get_data_directory() -> Result<path::PathBuf, Box<dyn Error>> {

@@ -50,23 +50,24 @@ pub mod db {
 
     pub struct Database {
         connection: sqlite::Connection,
-        encryption: Encryption
+        encryption: Encryption,
+        password: String
     }
 
     impl Database {
-        pub fn add_password(&self, name: &str, password: &str) -> Result<(), DatabaseError> {
-            let enc_password = hex::encode(self.encryption.encrypt(password).context(OpenSSL)?);
+        pub fn add_password(&self, name: &str, password_to_add: &str) -> Result<(), DatabaseError> {
+            let enc_password_to_add = hex::encode(self.encryption.encrypt(password_to_add).context(OpenSSL)?);
 
             let mut statement = self.connection.prepare("INSERT INTO passwords VALUES (?1, ?2)").context(SQLite)?;
             statement.bind(1, name).context(SQLite)?;
-            statement.bind(2, enc_password.as_str()).context(SQLite)?;
+            statement.bind(2, enc_password_to_add.as_str()).context(SQLite)?;
 
             while let sqlite::State::Row = statement.next().context(SQLite)? {}
             
             Ok(())
         }
         
-        pub fn get_password(&self, name: &str, password: &str) -> Result<Vec<String>, DatabaseError> {
+        pub fn get_password(&self, name: &str) -> Result<Vec<String>, DatabaseError> {
             let mut statement = self.connection.prepare("SELECT password FROM passwords WHERE name = ?").context(SQLite)?;
         
             statement.bind(1, name).context(SQLite)?;
@@ -74,7 +75,7 @@ pub mod db {
             let mut fin: Vec<String> = Vec::new();
         
             while let sqlite::State::Row = statement.next().context(SQLite)? {
-                fin.push(self.encryption.decrypt(&hex::decode(statement.read::<String>(0).context(SQLite)?).context(Hex)?, &password)?);
+                fin.push(self.encryption.decrypt(&hex::decode(statement.read::<String>(0).context(SQLite)?).context(Hex)?, &self.password)?);
             }
         
             Ok(fin)
@@ -87,14 +88,14 @@ pub mod db {
             Ok(())
         }
         
-        pub fn get_all_passwords(&self, password: &str) -> Result<Vec<(String, String)>, DatabaseError> {
+        pub fn get_all_passwords(&self) -> Result<Vec<(String, String)>, DatabaseError> {
             let mut statement = self.connection.prepare("SELECT name, password FROM passwords ORDER BY name ASC").context(SQLite)?;
         
             let mut fin: Vec<(String, String)> = Vec::new();
         
             while let sqlite::State::Row = statement.next().context(SQLite)? {
                 let name = statement.read::<String>(0).context(SQLite)?;
-                let password = self.encryption.decrypt(&hex::decode(statement.read::<String>(1).context(SQLite)?).context(Hex)?, &password)?;
+                let password = self.encryption.decrypt(&hex::decode(statement.read::<String>(1).context(SQLite)?).context(Hex)?, &self.password)?;
                 fin.push((name, password));
             }
         
@@ -125,7 +126,7 @@ pub mod db {
 
         let connection = sqlite::open(path.join(DB_LOCATION)).context(SQLite)?;
 
-        let db = Database { connection, encryption };
+        let db = Database { connection, encryption, password: String::from(password) };
 
         db.connection.execute("CREATE TABLE IF NOT EXISTS passwords (name TEXT, password TEXT, PRIMARY KEY (name))").context(SQLite)?;
 
@@ -143,7 +144,7 @@ pub mod db {
 
         let encryption = Encryption::use_existing(path, password)?;
 
-        Ok(Database { connection, encryption })
+        Ok(Database { connection, encryption, password: String::from(password) })
     }
 
     pub fn db_exists(path: &path::PathBuf) -> FileStatus {
