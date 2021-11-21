@@ -1,5 +1,5 @@
 pub mod db {
-    use std::{path, fs, io::{self, Read}, result};
+    use std::{path, fs, io::{self, Read}};
     use sqlite;
     use snafu::{Snafu, ResultExt};
     use openssl::{symm::Cipher, rsa::{Padding, Rsa}};
@@ -19,7 +19,7 @@ pub mod db {
 
         #[snafu(display("File error: {}", message))]
         File {
-            message:String
+            message: String
         },
 
         #[snafu(display("{}", source))]
@@ -227,7 +227,7 @@ pub mod db {
             Ok(Encryption { public_key, private_key, password_hash })
         }
     
-        pub fn check_password(encryption: &Encryption, password: &str) -> result::Result<(), DatabaseError> {
+        pub fn check_password(encryption: &Encryption, password: &str) -> Result<(), DatabaseError> {
             if hash(password) != encryption.password_hash {
                 Authentication { message: "Incorrect password" }.fail()
             } else if let Err(_) = Rsa::private_key_from_pem_passphrase(&encryption.private_key, password.as_bytes()) {

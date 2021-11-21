@@ -32,6 +32,15 @@ macro_rules! exit {
     };
 }
 
+macro_rules! print_and_flush {
+    ( $( $x:expr ),* ) => {
+        {
+            print!($($x),*);
+            io::stdout().flush().unwrap();
+        }
+    };
+}
+
 fn handle_help() {
     println!("passwords is a command-line password manager. It supports the following options:");
     println!("add <name>");
@@ -57,19 +66,19 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let path = get_data_directory()?;
 
-    print_and_flush("Welcome! ")?;
+    print_and_flush!("Welcome! ");
 
     match db::db_exists(&path) {
         db::FileStatus::None => (),
         db::FileStatus::Some => {
-            print_and_flush("It looks like some configuration files are missing. Are you sure you want to overwrite the ones that remain? This will clear the stored data. y/N ")?;
+            print_and_flush!("It looks like some configuration files are missing. Are you sure you want to overwrite the ones that remain? This will clear the stored data. y/N ");
             match read_input()?.as_str() {
                 "y" | "Y" => db::delete(&path)?,
                 _ => { exit!("Aborting setup"); }
             }
         },
         db::FileStatus::All => {
-            print_and_flush("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ")?;
+            print_and_flush!("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ");
             match read_input()?.as_str() {
                 "y" | "Y" => db::delete(&path)?,
                 _ => { exit!("Aborting setup"); }
@@ -78,10 +87,10 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     };
 
     let password = loop {
-        print_and_flush("Please choose a master password: ")?;
+        print_and_flush!("Please choose a master password: ");
         let init_password = rpassword::read_password()?;
 
-        print_and_flush("Please confirm your master password: ")?;
+        print_and_flush!("Please confirm your master password: ");
         let confirm_init_password = rpassword::read_password()?;
 
         if init_password == confirm_init_password {
@@ -111,10 +120,10 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     match results.len() {
         0 => {
             let password_to_add = loop {
-                print_and_flush(format!("Enter password to add for {}: ", name_to_add))?;
+                print_and_flush!("Enter password to add for {}: ", name_to_add);
                 let password_to_add = rpassword::read_password()?;
                 
-                print_and_flush(format!("Confirm password to add for {}: ", name_to_add))?;
+                print_and_flush!("Confirm password to add for {}: ", name_to_add);
                 let password_confirm = rpassword::read_password()?;
         
                 if password_to_add == password_confirm {
@@ -164,7 +173,7 @@ fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    print_and_flush("Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: ")?;
+    print_and_flush!("Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: ");
 
     match read_input()?.as_str() {
         "y" | "Y" => { 
@@ -201,7 +210,7 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     match results.len() {
         0 => println!("You haven't saved a password for {}", name_to_remove),
         1 => {
-            print_and_flush(format!("Are you sure you want to remove password for {}? y/N: ", name_to_remove))?;
+            print_and_flush!("Are you sure you want to remove password for {}? y/N: ", name_to_remove);
 
             match read_input()?.as_str() {
                 "y" | "Y" => {
@@ -226,11 +235,10 @@ fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let results = database.get_all_names()?;
 
-    if results.len() == 0 {
-        println!("No entries found");
-    } else {
-        println!("{}", results.join("\n"));
-    }
+    match results.len() {
+        0 => println!("No entries found"),
+        _ => println!("{}", results.join("\n"))
+    };
 
     Ok(())
 }
@@ -244,7 +252,7 @@ fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
         db::FileStatus::None => exit!("It looks like you haven't set up this application yet. Please run passwords setup to get started.")
     };
 
-    print_and_flush("Enter master password: ")?;
+    print_and_flush!("Enter master password: ");
     let password = rpassword::read_password()?;
 
     let database = match db::use_existing(&data_dir, &password) {
@@ -261,11 +269,6 @@ fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
 
 fn get_data_directory() -> Result<path::PathBuf, Box<dyn Error>> {
     Ok(env::current_exe()?.parent().expect("executables are always in a folder").join(".data"))
-}
-
-fn print_and_flush(output: impl AsRef<str>) -> io::Result<()> {
-    print!("{}", output.as_ref());
-    io::stdout().flush()
 }
 
 fn read_input() -> io::Result<String> {
