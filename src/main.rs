@@ -111,10 +111,10 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    let results = database.get_password(&name_to_add)?;
+    let result = database.get_password(&name_to_add)?;
 
-    match results.len() {
-        0 => {
+    match result {
+        None => {
             let password_to_add = loop {
                 print_and_flush!("Enter password to add for {}: ", name_to_add);
                 let password_to_add = rpassword::read_password()?;
@@ -132,8 +132,7 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
             database.add_password(&name_to_add, &password_to_add)?;
             println!("Added password for {}!", name_to_add);
         },
-        1 => println!("There's already an entry for {} in the database", name_to_add),
-        _ => panic!("Somehow there's more than one entry for {} in the database", name_to_add)
+        Some(_) => println!("You've already saved a password for {}", name_to_add)
     };
 
     Ok(())
@@ -148,16 +147,15 @@ fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    let results = database.get_password(&name_to_get)?;
+    let result = database.get_password(&name_to_get)?;
 
-    match results.len() {
-        0 => println!("No password found for {}", name_to_get),
-        1 => {
-            Clipboard::new()?.set_string(results.get(0).unwrap())?;
+    match result {
+        None => println!("You haven't saved a password for {}", name_to_get),
+        Some(res) => {
+            Clipboard::new()?.set_string(&res)?;
             println!("Copied password for {} to clipboard", name_to_get);
         }
-        _ => panic!("Somehow there's more than one entry for {} in the database", name_to_get)
-    };
+    }
 
     Ok(())
 }
@@ -201,11 +199,11 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    let results = database.get_password(&name_to_remove)?;
+    let result = database.get_password(&name_to_remove)?;
 
-    match results.len() {
-        0 => println!("You haven't saved a password for {}", name_to_remove),
-        1 => {
+    match result {
+        None => println!("You haven't saved a password for {}", name_to_remove),
+        Some(_) => {
             print_and_flush!("Are you sure you want to remove password for {}? y/N: ", name_to_remove);
 
             match read_input()?.as_str() {
@@ -215,8 +213,7 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
                 },
                 _ => println!("Removal cancelled - no data was affected")
             };
-        },
-        _ => panic!("Somehow there's more than one entry for {} in the database", name_to_remove)
+        }
     };
 
     Ok(())

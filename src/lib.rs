@@ -22,6 +22,11 @@ pub mod db {
             message: String
         },
 
+        #[snafu(display("Duplicate entry error: more than one entry for {}", entry))]
+        DuplicateEntry {
+            entry: String
+        },
+
         #[snafu(display("{}", source))]
         Io {
             source: io::Error
@@ -75,18 +80,22 @@ pub mod db {
             Ok(())
         }
         
-        pub fn get_password(&self, name_to_get: &str) -> Result<Vec<String>> {
+        pub fn get_password(&self, name_to_get: &str) -> Result<Option<String>> {
             let mut statement = self.connection.prepare("SELECT password FROM passwords WHERE name = ?").context(SQLite)?;
         
             statement.bind(1, name_to_get).context(SQLite)?;
         
-            let mut fin: Vec<String> = Vec::new();
+            let mut results: Vec<String> = Vec::new();
         
             while let sqlite::State::Row = statement.next().context(SQLite)? {
-                fin.push(self.encryption.decrypt(&hex::decode(statement.read::<String>(0).context(SQLite)?).context(Hex)?, &self.password)?);
+                results.push(self.encryption.decrypt(&hex::decode(statement.read::<String>(0).context(SQLite)?).context(Hex)?, &self.password)?);
             }
-        
-            Ok(fin)
+
+            match results.len() {
+                0 => Ok(None),
+                1 => Ok(Some(results.get(0).unwrap().to_string())),
+                _ => DuplicateEntry { entry: name_to_get }.fail()
+            }
         }
         
         pub fn remove_password(&self, name_to_remove: &str) -> sqlite::Result<()> {
