@@ -111,9 +111,7 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    let result = database.get_password(&name_to_add)?;
-
-    match result {
+    match database.get_password(&name_to_add)? {
         None => {
             let password_to_add = loop {
                 print_and_flush!("Enter password to add for {}: ", name_to_add);
@@ -147,9 +145,7 @@ fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    let result = database.get_password(&name_to_get)?;
-
-    match result {
+    match database.get_password(&name_to_get)? {
         None => println!("You haven't saved a password for {}", name_to_get),
         Some(res) => {
             Clipboard::new()?.set_string(&res)?;
@@ -177,8 +173,8 @@ fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
                 println!("No passwords found");
             } else {
                 let mut joined = String::new();
-                for result in results {
-                    joined += format!("{}: {}\n", result.0, result.1).as_str();
+                for (name, password) in results {
+                    joined += format!("{}: {}\n", name, password).as_str();
                 }
                 Clipboard::new()?.set_string(joined.as_str())?;
                 println!("Copied all passwords to clipboard");
@@ -199,9 +195,7 @@ fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
 
     let database = prepare_db_and_password()?;
 
-    let result = database.get_password(&name_to_remove)?;
-
-    match result {
+    match database.get_password(&name_to_remove)? {
         None => println!("You haven't saved a password for {}", name_to_remove),
         Some(_) => {
             print_and_flush!("Are you sure you want to remove password for {}? y/N: ", name_to_remove);

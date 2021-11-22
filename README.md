@@ -1,0 +1,2 @@
+# Passwords
+I was learning Rust and wanted a password manager, so I thought I'd try making a password manager in Rust. Intended mainly for my personal use, but if you wanna try it, please go ahead. Just tell me if there's anything I should fix.

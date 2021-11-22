@@ -68,6 +68,11 @@ pub mod db {
     }
 
     impl Database {
+        /// Adds a password to the database
+        /// 
+        /// ```rust
+        /// database.add_password(&name_to_add, &password_to_add)?;
+        /// ```
         pub fn add_password(&self, name_to_add: &str, password_to_add: &str) -> Result<()> {
             let enc_password_to_add = hex::encode(self.encryption.encrypt(password_to_add)?);
 
@@ -80,6 +85,18 @@ pub mod db {
             Ok(())
         }
         
+        /// Retrieves a password from the database. 
+        /// Returns None if there was no password with the requested name,
+        /// or Some if there was one.
+        /// 
+        /// ```rust
+        /// let result = database.get_password(&name_to_get)?;
+        /// 
+        /// match result {
+        ///     None => /* handle no entry found */,
+        ///     Some(entry) => /* handle entry found */
+        /// }
+        /// ```
         pub fn get_password(&self, name_to_get: &str) -> Result<Option<String>> {
             let mut statement = self.connection.prepare("SELECT password FROM passwords WHERE name = ?").context(SQLite)?;
         
@@ -98,6 +115,11 @@ pub mod db {
             }
         }
         
+        /// Removes a password from the database.
+        /// 
+        /// ```rust
+        /// database.remove_password(&name_to_remove)?;
+        /// ```
         pub fn remove_password(&self, name_to_remove: &str) -> sqlite::Result<()> {
             let mut statement = self.connection.prepare("DELETE FROM passwords WHERE name = ?")?;
 
@@ -108,6 +130,16 @@ pub mod db {
             Ok(())
         }
 
+        /// Retrieves all name-password combinations from the database. 
+        /// Returns a list of 2-tuples, where the first entry in each tuple is the name,
+        /// and the second is the corresponding password.
+        /// 
+        /// ```rust
+        /// let results = database.get_all_passwords()?;
+        /// for (name, passsword) in results {
+        ///     // handle names and passwords
+        /// }
+        /// ```
         pub fn get_all_passwords(&self) -> Result<Vec<(String, String)>> {
             let mut statement = self.connection.prepare("SELECT name, password FROM passwords ORDER BY name ASC").context(SQLite)?;
         
@@ -122,6 +154,14 @@ pub mod db {
             Ok(fin)
         }
 
+        /// Retrieves all names from the database, without their corresponding passwords.
+        /// 
+        /// ```rust
+        /// let results = database.get_all_names()?;
+        /// for name in results {
+        ///     // handle each name
+        /// }
+        /// ```
         pub fn get_all_names(&self) -> Result<Vec<String>> {
             let mut statement = self.connection.prepare("SELECT name FROM passwords ORDER BY name ASC").context(SQLite)?;
         
@@ -134,6 +174,16 @@ pub mod db {
             Ok(fin)
         }
 
+        /// Creates a new database instance. Fails with [`DatabaseError::File`](db::DatabaseError::File) if any files already exist,
+        /// so you should probably call files_exist() first.
+        /// 
+        /// ```rust
+        /// match db::Database::files_exist(&path) {
+        ///     db::FileStatus::None => { db::Database::create_new(&path, &password)?; },
+        ///     db::FileStatus::Some => /* handle some files have been deleted */,
+        ///     db::FileStatus::All => /* handle database already exists */
+        /// };
+        /// ```
         pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Database> {
             match Database::files_exist(&path) {
                 FileStatus::All => { return File { message: "Database already exists" }.fail(); },
@@ -152,6 +202,19 @@ pub mod db {
             Ok(db)
         }
     
+        /// Connects to an existing database instance. Fails with [`DatabaseError::File`](db::DatabaseError::File) if not all files exist,
+        /// so you should probably call files_exist() first.
+        /// 
+        /// ```rust
+        /// match db::Database::files_exist(&path) {
+        ///     db::FileStatus::None => /* handle no files exist */,
+        ///     db::FileStatus::Some => /* handle some files have been deleted */,
+        ///     db::FileStatus::All => { 
+        ///         let database = db::Database::use_existing(&path, &password)?;
+        ///         // interact with database connection
+        ///     }
+        /// };
+        /// ```
         pub fn use_existing(path: &path::PathBuf, password: &str) -> Result<Database> {
             match Database::files_exist(&path) {
                 FileStatus::All => (),
@@ -166,6 +229,15 @@ pub mod db {
             Ok(Database { connection, encryption, password: String::from(password) })
         }
     
+        /// Checks how many of the necessary configuration files exist and returns the appropriate file status.
+        /// 
+        /// ```rust
+        /// match db::Database::files_exist(&data_dir) {
+        ///     db::FileStatus::All => /* handle all files exist */,
+        ///     db::FileStatus::Some => /* handle some files exist */,
+        ///     db::FileStatus::None => /* handle no files exist */
+        /// };
+        /// ```
         pub fn files_exist(path: &path::PathBuf) -> FileStatus {
             match Encryption::encryption_exists(path) {
                 FileStatus::All => if path.join(DB_LOCATION).exists() { FileStatus::All } else { FileStatus::Some },
@@ -174,6 +246,13 @@ pub mod db {
             }
         }
     
+        /// Deletes all database configuration files. 
+        /// 
+        /// WARNING: DOES NOT ASK FOR CONFIRMATION. CALLING THIS FUNCTION WILL IRREVERSIBLY DELETE CONFIGURATION
+        /// 
+        /// ```rust
+        /// db::Database::delete(&path)?;
+        /// ```
         pub fn delete(path: &path::PathBuf) -> io::Result<()> {
             Encryption::delete(path)?;
             fs::remove_file(path.join(DB_LOCATION))
