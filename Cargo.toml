@@ -1,7 +1,7 @@
 [package]
 name = "passwords"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 authors = ["Elie Hess"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,7 +10,7 @@ authors = ["Elie Hess"]
 sha2 = "0.9.6"
 rpassword = "5.0.1"
 sqlite = "0.26.0"
-openssl = "0.10.36"
+openssl = "0.10.55"
 hex = "0.4.3"
 clipboard-win = "2.2.0"
 snafu = "0.6.10"

@@ -1,27 +1,13 @@
-use std::{env, path, io::{self, Write}, result::Result, error::Error};
+use clipboard_win::Clipboard;
 use passwords::db;
 use rpassword;
-use clipboard_win::Clipboard;
-
-fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = env::args().collect();
-
-    match args.get(1) {
-        Some(s) => match s.as_str() {
-            "add" => handle_add(&args)?,
-            "get" => handle_get(&args)?,
-            "all" => handle_all(&args)?,
-            "remove" => handle_remove(&args)?,
-            "list" => handle_list(&args)?,
-            "setup" => handle_setup(&args)?,
-            "help" => handle_help(),
-            _ => { println!("Option not understood. Run passwords help for help") }
-        },
-        None => { println!("Please enter an option. Run passwords help for help") }
-    }
-
-    Ok(())
-}
+use std::{
+    env,
+    error::Error,
+    io::{self, Write},
+    path,
+    result::Result,
+};
 
 macro_rules! exit {
     ($($x:expr),*) => {{
@@ -37,29 +23,48 @@ macro_rules! print_and_flush {
     };
 }
 
-fn handle_help() {
-    println!("passwords is a command-line password manager. It supports the following options:");
-    println!("setup");
-    println!("\tPerforms all of the initial setup necessary to secure data. Must be run once when this program is first used.");
-    println!("add <name>");
-    println!("\tAdds a new entry for the given name. Fails if an entry for that name already exists (it'll tell you when this happens).");
-    println!("get <name>");
-    println!("\tRetrieves an entry for the given name and copies it to the clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).");
-    println!("remove <name>");
-    println!("\tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).");
-    println!("all");
-    println!("\tRetrieves all name-password pairs and copies them in alphabetical order to the clipboard.");
-    println!("list");
-    println!("\tRetrieves all names (no passwords) and prints them to the console");
-    println!("help");
-    println!("\tDisplays this message");
+fn main() {
+    match do_main(env::args().collect()) {
+        Ok(s) => println!("{}", s),
+        Err(e) => eprintln!("{}", e),
+    }
 }
 
-fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    if args.len() != 2 {
-        exit!("setup takes no arguments");
-    }
+fn do_main(args: Vec<String>) -> Result<String, Box<dyn Error>> {
+    Ok(match args.get(1) {
+        Some(s) => match s.as_str() {
+            "add" => handle_add(args.get(2))?,
+            "get" => handle_get(args.get(2))?,
+            "remove" => handle_remove(args.get(2))?,
+            "all" => handle_all()?,
+            "list" => handle_list()?,
+            "setup" => handle_setup()?,
+            "help" => handle_help(),
+            _ => "Option not understood. Run passwords help for help".to_string(),
+        },
+        None => "Please enter an option. Run passwords help for help".to_string(),
+    })
+}
 
+fn handle_help() -> String {
+    "passwords is a command-line password manager. It supports the following options:\n\
+    setup\n\
+    \tPerforms all of the initial setup necessary to secure data. Must be run once when this program is first used.\n\
+    add <name>\n\
+    \tPrompts the user for a password to add for the given name, then adds them as a new entry. Fails if an entry for that name already exists (it'll tell you when this happens).\n\
+    get <name>\n\
+    \tRetrieves an entry for the given name and copies it to the clipboard. Fails if no entry for that name exists (it'll tell you when this happens, too).\n\
+    remove <name>\n\
+    \tRemoves an entry for the given name. Fails if no entry for that name exists (you get the idea).\n\
+    all\n\
+    \tRetrieves all name-password pairs and copies them in alphabetical order to the clipboard.\n\
+    list\n\
+    \tRetrieves all names (no passwords) and prints them to the console in alphabetical order\n\
+    help\n\
+    \tDisplays this message".to_string()
+}
+
+fn handle_setup() -> Result<String, Box<dyn Error>> {
     let path = get_data_directory()?;
 
     print_and_flush!("Welcome! ");
@@ -70,14 +75,14 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
             print_and_flush!("It looks like some configuration files are missing. Are you sure you want to overwrite the ones that remain? This will clear the stored data. y/N ");
             match read_input()?.as_str() {
                 "y" | "Y" => db::Database::delete(&path)?,
-                _ => exit!("Aborting setup")
+                _ => exit!("Aborting setup"),
             }
-        },
+        }
         db::FileStatus::All => {
             print_and_flush!("It looks like you already have a config ready to go. Are you sure you want to overwrite it? This will clear the stored data. y/N ");
             match read_input()?.as_str() {
                 "y" | "Y" => db::Database::delete(&path)?,
-                _ => exit!("Aborting setup")
+                _ => exit!("Aborting setup"),
             };
         }
     };
@@ -97,17 +102,14 @@ fn handle_setup(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
     };
 
     db::Database::create_new(&path, &password)?;
-    println!("Awesome! You're ready to go.");
 
-    Ok(())
+    Ok("Awesome! You're ready to go.".to_string())
 }
 
-fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    if args.len() != 3 {
-        exit!("add takes one argument");
-    }
-
-    let name_to_add = &args[2];
+fn handle_add(maybe_name_to_add: Option<&String>) -> Result<String, Box<dyn Error>> {
+    let Some(name_to_add) = maybe_name_to_add else {
+        return Ok("add takes one argument".to_string());
+    };
 
     let database = prepare_db_and_password()?;
 
@@ -116,118 +118,110 @@ fn handle_add(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
             let password_to_add = loop {
                 print_and_flush!("Enter password to add for {}: ", name_to_add);
                 let password_to_add = rpassword::read_password()?;
-                
+
                 print_and_flush!("Confirm password to add for {}: ", name_to_add);
                 let password_confirm = rpassword::read_password()?;
-        
+
                 if password_to_add == password_confirm {
                     break password_to_add;
                 }
-        
+
                 println!("The passwords don't match. Please try again.");
             };
-        
-            database.add_password(&name_to_add, &password_to_add)?;
-            println!("Added password for {}!", name_to_add);
-        },
-        Some(_) => println!("You've already saved a password for {}", name_to_add)
+
+            database.add_password(name_to_add, &password_to_add)?;
+            Ok(format!("Added password for {}!", name_to_add))
+        }
+        Some(_) => Ok(format!(
+            "You've already saved a password for {}",
+            name_to_add
+        )),
+    }
+}
+
+fn handle_get(maybe_name_to_get: Option<&String>) -> Result<String, Box<dyn Error>> {
+    let Some(name_to_get) = maybe_name_to_get else {
+        return Ok("get takes one argument".to_string());
     };
 
-    Ok(())
-}
-
-fn handle_get(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    if args.len() != 3 {
-        exit!("get takes one argument");
-    }
-
-    let name_to_get = &args[2];
-
     let database = prepare_db_and_password()?;
 
-    match database.get_password(&name_to_get)? {
-        None => println!("You haven't saved a password for {}", name_to_get),
+    match database.get_password(name_to_get)? {
+        None => Ok(format!("You haven't saved a password for {}", name_to_get)),
         Some(res) => {
             Clipboard::new()?.set_string(&res)?;
-            println!("Copied password for {} to clipboard", name_to_get);
+            Ok(format!("Copied password for {} to clipboard", name_to_get))
         }
     }
-
-    Ok(())
 }
 
-fn handle_all(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    if args.len() != 2 {
-       exit!("all takes no arguments");
-    }
-
+fn handle_all() -> Result<String, Box<dyn Error>> {
     let database = prepare_db_and_password()?;
 
-    print_and_flush!("Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: ");
+    print_and_flush!(
+        "Are you sure you want to get all passwords? They will be copied to your clipboard. y/N: "
+    );
 
     match read_input()?.as_str() {
-        "y" | "Y" => { 
+        "y" | "Y" => {
             let results = database.get_all_passwords()?;
 
             if results.len() == 0 {
-                println!("No passwords found");
+                Ok("No passwords found".to_string())
             } else {
                 let mut joined = String::new();
                 for (name, password) in results {
                     joined += format!("{}: {}\n", name, password).as_str();
                 }
                 Clipboard::new()?.set_string(joined.as_str())?;
-                println!("Copied all passwords to clipboard");
+                Ok("Copied all passwords to clipboard".to_string())
             }
-        },
-        _ => println!("Cancelling retrieving all passwords")
-    };
-
-    Ok(())
+        }
+        _ => Ok("Cancelling retrieving all passwords".to_string()),
+    }
 }
 
-fn handle_remove(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    if args.len() != 3 {
-        exit!("remove takes one argument");
-    }
-
-    let name_to_remove = &args[2];
+fn handle_remove(maybe_name_to_remove: Option<&String>) -> Result<String, Box<dyn Error>> {
+    let Some(name_to_remove) = maybe_name_to_remove else {
+        return Ok("remove takes one argument".to_string());
+    };
 
     let database = prepare_db_and_password()?;
 
-    match database.get_password(&name_to_remove)? {
-        None => println!("You haven't saved a password for {}", name_to_remove),
+    match database.get_password(name_to_remove)? {
+        None => Ok(format!(
+            "You haven't saved a password for {}",
+            name_to_remove
+        )),
         Some(_) => {
-            print_and_flush!("Are you sure you want to remove password for {}? y/N: ", name_to_remove);
+            print_and_flush!(
+                "Are you sure you want to remove password for {}? y/N: ",
+                name_to_remove
+            );
 
             match read_input()?.as_str() {
                 "y" | "Y" => {
-                    database.remove_password(&name_to_remove)?;
-                    println!("Successfully removed password for {}", name_to_remove);
-                },
-                _ => println!("Removal cancelled - no data was affected")
-            };
+                    database.remove_password(name_to_remove)?;
+                    Ok(format!(
+                        "Successfully removed password for {}",
+                        name_to_remove
+                    ))
+                }
+                _ => Ok("Removal cancelled - no data was affected".to_string()),
+            }
         }
-    };
-
-    Ok(())
+    }
 }
 
-fn handle_list(args: &Vec<String>) -> Result<(), Box<dyn Error>> {
-    if args.len() != 2 {
-        exit!("list takes no arguments");
-    }
-
+fn handle_list() -> Result<String, Box<dyn Error>> {
     let database = prepare_db_and_password()?;
 
     let results = database.get_all_names()?;
 
     match results.len() {
-        0 => println!("No entries found"),
-        _ => println!("{}", results.join("\n"))
-    };
-
-    Ok(())
+        0 => Ok("No entries found".to_string()),
+        _ => Ok(format!("{}", results.join("\n"))),
+    }
 }
 
 fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
@@ -245,17 +239,26 @@ fn prepare_db_and_password() -> Result<db::Database, Box<dyn Error>> {
     let database = match db::Database::use_existing(&data_dir, &password) {
         Ok(db) => db,
         Err(e) => match e {
-            db::DatabaseError::Authentication { message } => exit!("An error occurred during authentication: {}", message),
-            db::DatabaseError::File { message } => exit!("An error occurred with the application files: {}", message),
-            _ => { return Err(Box::new(e)); }
-        }
+            db::DatabaseError::Authentication { message } => {
+                exit!("An error occurred during authentication: {}", message)
+            }
+            db::DatabaseError::File { message } => {
+                exit!("An error occurred with the application files: {}", message)
+            }
+            _ => {
+                return Err(Box::new(e));
+            }
+        },
     };
 
     Ok(database)
 }
 
 fn get_data_directory() -> io::Result<path::PathBuf> {
-    Ok(env::current_exe()?.parent().expect("executables are always in a folder").join(".data"))
+    Ok(env::current_exe()?
+        .parent()
+        .expect("executables are always in a folder")
+        .join(".data"))
 }
 
 fn read_input() -> io::Result<String> {
