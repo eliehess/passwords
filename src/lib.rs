@@ -19,11 +19,11 @@ pub mod db {
 
     #[derive(Debug, Snafu)]
     pub enum DatabaseError {
-        #[snafu(display("Authentication error: {}", message))]
+        #[snafu(display("Authentication error: {message}"))]
         Authentication { message: String },
 
-        #[snafu(display("File error: {}", message))]
-        File { message: String },
+        #[snafu(display("Application file error: {message}"))]
+        ApplicationFile { message: String },
 
         #[snafu(display("Duplicate entry error: more than one entry for {}", entry))]
         DuplicateEntry { entry: String },
@@ -112,7 +112,7 @@ pub mod db {
 
             match results.len() {
                 0 => Ok(None),
-                1 => Ok(Some(results.get(0).unwrap().to_string())),
+                1 => Ok(Some(results[0].clone())),
                 _ => DuplicateEntry { entry: name_to_get }.fail(),
             }
         }
@@ -154,10 +154,11 @@ pub mod db {
 
             while let sqlite::State::Row = statement.next().context(SQLite)? {
                 let name = statement.read::<String>(0).context(SQLite)?;
-                let password = self.encryption.decrypt(
-                    &hex::decode(statement.read::<String>(1).context(SQLite)?).context(Hex)?,
-                    &self.password,
-                )?;
+                let encrypted_password =
+                    &hex::decode(statement.read::<String>(1).context(SQLite)?).context(Hex)?;
+                let password = self
+                    .encryption
+                    .decrypt(encrypted_password, &self.password)?;
                 fin.push((name, password));
             }
 
@@ -187,8 +188,8 @@ pub mod db {
             Ok(fin)
         }
 
-        /// Creates a new database instance. Fails with [`DatabaseError::File`](db::DatabaseError::File) if any files already exist,
-        /// so you should probably call files_exist() first.
+        /// Creates a new database instance. Fails with [`DatabaseError::ApplicationFile`](db::DatabaseError::ApplicationFile)
+        /// if any files already exist, so you should probably call `files_exist()` first.
         ///
         /// ```rust
         /// match db::Database::files_exist(&path) {
@@ -200,13 +201,13 @@ pub mod db {
         pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Database> {
             match Database::files_exist(&path) {
                 FileStatus::All => {
-                    return File {
+                    return ApplicationFile {
                         message: "Database already exists",
                     }
                     .fail();
                 }
                 FileStatus::Some => {
-                    return File {
+                    return ApplicationFile {
                         message: "Database corrupted",
                     }
                     .fail();
@@ -246,13 +247,13 @@ pub mod db {
             match Database::files_exist(&path) {
                 FileStatus::All => (),
                 FileStatus::Some => {
-                    return File {
+                    return ApplicationFile {
                         message: "Database corrupted",
                     }
                     .fail();
                 }
                 FileStatus::None => {
-                    return File {
+                    return ApplicationFile {
                         message: "No database exists",
                     }
                     .fail();
@@ -362,13 +363,13 @@ pub mod db {
         pub fn create_new(path: &path::PathBuf, password: &str) -> Result<Encryption> {
             match Encryption::encryption_exists(&path) {
                 FileStatus::All => {
-                    return File {
+                    return ApplicationFile {
                         message: "Keys already exist",
                     }
                     .fail();
                 }
                 FileStatus::Some => {
-                    return File {
+                    return ApplicationFile {
                         message: "Keys corrupted",
                     }
                     .fail();
@@ -402,13 +403,13 @@ pub mod db {
             match Encryption::encryption_exists(&path) {
                 FileStatus::All => (),
                 FileStatus::Some => {
-                    return File {
+                    return ApplicationFile {
                         message: "Keys corrupted",
                     }
                     .fail();
                 }
                 FileStatus::None => {
-                    return File {
+                    return ApplicationFile {
                         message: "Keys don't exist",
                     }
                     .fail();
