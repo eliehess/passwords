@@ -7,10 +7,10 @@ authors = ["Elie Hess"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-sha2 = "0.9.6"
-rpassword = "5.0.1"
-sqlite = "0.26.0"
+sha2 = "0.10.8"
+rpassword = "7.3.1"
+sqlite = "0.36.1"
 openssl = "0.10.55"
 hex = "0.4.3"
-clipboard-win = "2.2.0"
-snafu = "0.6.10"
+clipboard-win = "5.4.0"
+snafu = "0.8.5"
